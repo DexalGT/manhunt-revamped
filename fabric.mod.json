@@ -1,0 +1,23 @@
+{
+    "schemaVersion": 1,
+    "id": "sirdexal_manhunt",
+    "version": "1.0.0",
+    "name": "Manhunt SirDexal",
+    "description": "Server-side overhauled Manhunt",
+    "authors": [
+        "Private"
+    ],
+    "contact": {},
+    "license": "All Rights Reserved",
+    "environment": "*",
+    "entrypoints": {
+        "main": [
+            "sirdexal.manhunt.ManhuntMod"
+        ]
+    },
+    "depends": {
+        "fabricloader": ">=0.14.0",
+        "fabric-api": "*",
+        "minecraft": "1.21.11"
+    }
+}

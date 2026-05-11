@@ -1,0 +1,33 @@
+name: Build Manhunt Mod
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      
+      # Generates the Gradle wrapper dynamically so you don't need to commit the gradlew binaries
+      - name: Setup Gradle Wrapper
+        run: gradle wrapper --gradle-version 8.10.2
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew build
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: manhunt-revamped-build
+          path: build/libs/*.jar
