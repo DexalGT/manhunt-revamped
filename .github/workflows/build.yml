@@ -18,7 +18,7 @@ jobs:
       
       # Generates the Gradle wrapper dynamically so you don't need to commit the gradlew binaries
       - name: Setup Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.9
+        run: gradle wrapper --gradle-version 8.10.2
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
