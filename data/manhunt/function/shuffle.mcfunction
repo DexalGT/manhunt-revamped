@@ -13,5 +13,8 @@
 #   /function manhunt:shuffle {count:2}   → 2 runners
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Load the macro wrapper which accepts the count argument
-function manhunt:shuffle_with_count {count:1}
+# Default to 1 runner then delegate to the non-macro do_shuffle.
+# Calling a macro function from Java context silently fails in 1.21.11,
+# so we set the scoreboard directly (scoreboard commands are unaffected).
+scoreboard players set $wanted_runners mh_runner_count 1
+function manhunt:internal/do_shuffle

@@ -38,6 +38,6 @@ team modify runners friendlyFire false
 execute unless score $init mh_prev matches 1 run function manhunt:internal/first_load
 
 # ── Defaults (only if not already initialised) ────────────────────────────────
-execute unless score $runner_count mh_runner_count matches -2147483647.. run scoreboard players set $runner_count mh_runner_count 1
+execute unless score $wanted_runners mh_runner_count matches -2147483647.. run scoreboard players set $wanted_runners mh_runner_count 1
 
 tellraw @a {"text":"[Manhunt] Datapack loaded.","color":"gold","bold":true}
