@@ -2,17 +2,24 @@ package sirdexal.manhunt;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
-import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.entity.Entity;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.PlayerConfigEntry;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.function.CommandFunction;
+import net.minecraft.server.function.CommandFunctionManager;
+import net.minecraft.server.function.MacroException;
+import net.minecraft.server.function.Procedure;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Optional;
 
 public class ManhuntMod implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("manhunt-revamped");
@@ -29,11 +36,8 @@ public class ManhuntMod implements ModInitializer {
         });
     }
 
-    // Returns true for console/RCON/command-blocks (no entity), or for players
-    // that are in the server op list.
-    // In 1.21.11, PlayerManager.isOperator() takes a PlayerConfigEntry (not
-    // GameProfile). PlayerConfigEntry has a GameProfile constructor, so we
-    // construct one and pass it in.
+    // isOperator() was changed to take PlayerConfigEntry in 1.21.11.
+    // We construct one from the GameProfile since that constructor still exists.
     private static boolean isOp(ServerCommandSource src) {
         Entity entity = src.getEntity();
         if (entity instanceof ServerPlayerEntity player) {
@@ -42,31 +46,58 @@ public class ManhuntMod implements ModInitializer {
             LOGGER.debug("[Manhunt] Permission check for '{}': op={}", player.getName().getString(), op);
             return op;
         }
-        // console / RCON / command blocks – always allowed
-        return true;
+        return true; // console / RCON / command blocks always allowed
     }
 
-    // Execute a datapack function string via the Brigadier dispatcher.
-    // Uses the server's own console source (always level-4) so /function never
-    // rejects the call due to missing permission.
-    private void runFunction(ServerCommandSource callerSource, String command) {
-        LOGGER.info("[Manhunt] >>> Dispatching: '{}'", command);
-        LOGGER.info("[Manhunt]     Caller: '{}'  Server: '{}'",
-                callerSource.getName(),
-                callerSource.getServer().getName());
+    // Execute a plain (non-macro) datapack function.
+    private void runFunction(ServerCommandSource callerSource, String functionId) {
+        LOGGER.info("[Manhunt] >>> Executing '{}'  caller='{}'", functionId, callerSource.getName());
+        CommandFunctionManager manager = callerSource.getServer().getCommandFunctionManager();
+        Optional<CommandFunction<ServerCommandSource>> fnOpt = manager.getFunction(Identifier.of(functionId));
+
+        if (fnOpt.isEmpty()) {
+            LOGGER.error("[Manhunt] <<< Function '{}' not found in datapack!", functionId);
+            callerSource.sendError(Text.literal("[Manhunt] Function not found: " + functionId));
+            return;
+        }
+
         try {
-            ServerCommandSource funcSource = callerSource.getServer().getCommandSource().withSilent();
-            long before = System.currentTimeMillis();
-            int result = callerSource.getServer().getCommandManager().getDispatcher().execute(command, funcSource);
-            long elapsed = System.currentTimeMillis() - before;
-            LOGGER.info("[Manhunt] <<< '{}' OK  result={} time={}ms", command, result, elapsed);
-        } catch (CommandSyntaxException e) {
-            LOGGER.error("[Manhunt] <<< '{}' FAILED: {}", command, e.getMessage());
-            LOGGER.error("[Manhunt]     Cause type : {}", e.getType().toString());
-            callerSource.sendError(Text.literal("[Manhunt] Function error: " + e.getMessage()));
+            long t = System.currentTimeMillis();
+            manager.execute(fnOpt.get(), manager.getScheduledCommandSource());
+            LOGGER.info("[Manhunt] <<< '{}' OK  time={}ms", functionId, System.currentTimeMillis() - t);
         } catch (Exception e) {
-            LOGGER.error("[Manhunt] <<< '{}' UNEXPECTED EXCEPTION: {}", command, e.toString(), e);
-            callerSource.sendError(Text.literal("[Manhunt] Unexpected error – check server logs"));
+            LOGGER.error("[Manhunt] <<< '{}' ERROR: {}", functionId, e.toString(), e);
+            callerSource.sendError(Text.literal("[Manhunt] Error: " + e.getMessage()));
+        }
+    }
+
+    // Execute a macro datapack function with NbtCompound arguments.
+    // withMacroReplaced() substitutes the macro variables and returns a Procedure
+    // which is then passed back to the function manager for execution.
+    private void runMacroFunction(ServerCommandSource callerSource, String functionId, NbtCompound args) {
+        LOGGER.info("[Manhunt] >>> Executing macro '{}'  caller='{}'  args={}",
+                functionId, callerSource.getName(), args);
+        CommandFunctionManager manager = callerSource.getServer().getCommandFunctionManager();
+        Optional<CommandFunction<ServerCommandSource>> fnOpt = manager.getFunction(Identifier.of(functionId));
+
+        if (fnOpt.isEmpty()) {
+            LOGGER.error("[Manhunt] <<< Macro function '{}' not found in datapack!", functionId);
+            callerSource.sendError(Text.literal("[Manhunt] Function not found: " + functionId));
+            return;
+        }
+
+        try {
+            long t = System.currentTimeMillis();
+            Procedure<ServerCommandSource> procedure =
+                    fnOpt.get().withMacroReplaced(args, manager.getDispatcher());
+            manager.execute(procedure, manager.getScheduledCommandSource());
+            LOGGER.info("[Manhunt] <<< macro '{}' OK  time={}ms", functionId, System.currentTimeMillis() - t);
+        } catch (MacroException e) {
+            LOGGER.error("[Manhunt] <<< '{}' MACRO ERROR: {}", functionId, e.getMessage());
+            callerSource.sendError(Text.literal("[Manhunt] Macro error: " + e.getMessage()));
+        } catch (Exception e) {
+            LOGGER.error("[Manhunt] <<< '{}' ERROR: {}", functionId, e.toString(), e);
+            callerSource.sendError(Text.literal("[Manhunt] Error: " + e.getMessage()));
         }
     }
 
@@ -80,7 +111,7 @@ public class ManhuntMod implements ModInitializer {
                 .executes(context -> {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt shuffle  ← '{}'", src.getName());
-                    runFunction(src, "function manhunt:shuffle");
+                    runFunction(src, "manhunt:shuffle");
                     return 1;
                 })
                 .then(CommandManager.argument("count", IntegerArgumentType.integer(1))
@@ -88,7 +119,9 @@ public class ManhuntMod implements ModInitializer {
                         ServerCommandSource src = context.getSource();
                         int count = IntegerArgumentType.getInteger(context, "count");
                         LOGGER.info("[Manhunt] /manhunt shuffle {}  ← '{}'", count, src.getName());
-                        runFunction(src, "function manhunt:shuffle_with_count {count:" + count + "}");
+                        NbtCompound args = new NbtCompound();
+                        args.putInt("count", count);
+                        runMacroFunction(src, "manhunt:shuffle_with_count", args);
                         return 1;
                     })
                 )
@@ -98,7 +131,7 @@ public class ManhuntMod implements ModInitializer {
                 .executes(context -> {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt swap  ← '{}'", src.getName());
-                    runFunction(src, "function manhunt:swap");
+                    runFunction(src, "manhunt:swap");
                     return 1;
                 })
             )
@@ -107,7 +140,7 @@ public class ManhuntMod implements ModInitializer {
                 .executes(context -> {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt start  ← '{}'", src.getName());
-                    runFunction(src, "function manhunt:start");
+                    runFunction(src, "manhunt:start");
                     return 1;
                 })
             )
@@ -116,7 +149,7 @@ public class ManhuntMod implements ModInitializer {
                 .executes(context -> {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt stop  ← '{}'", src.getName());
-                    runFunction(src, "function manhunt:stop");
+                    runFunction(src, "manhunt:stop");
                     return 1;
                 })
             )
@@ -125,7 +158,7 @@ public class ManhuntMod implements ModInitializer {
                 .executes(context -> {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt reset_history  ← '{}'", src.getName());
-                    runFunction(src, "function manhunt:reset_history");
+                    runFunction(src, "manhunt:reset_history");
                     return 1;
                 })
             )
