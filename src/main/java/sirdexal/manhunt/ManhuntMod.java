@@ -7,6 +7,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.entity.Entity;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.PlayerConfigEntry;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
@@ -34,30 +35,48 @@ public class ManhuntMod implements ModInitializer {
             LOGGER.info("[Manhunt] /manhunt commands registered (env={})", environment.name());
         });
 
-        // SERVER_STARTED fires before the function registry is populated, so we
-        // wait for the first server tick instead — by then all datapacks are loaded.
         boolean[] initDone = {false};
         ServerTickEvents.START_SERVER_TICK.register(server -> {
             if (initDone[0]) return;
             initDone[0] = true;
-
-            // If #minecraft:load already ran, the key objective already exists — skip.
-            if (server.getScoreboard().getNullableObjective("mh_enabled") != null) {
-                LOGGER.info("[Manhunt] Scoreboard already initialised (#minecraft:load ran OK)");
-                return;
-            }
-
-            LOGGER.info("[Manhunt] Scoreboard missing on first tick – running manhunt:internal/load from Java...");
-            CommandFunctionManager manager = server.getCommandFunctionManager();
-            Optional<CommandFunction<ServerCommandSource>> loadFn =
-                    manager.getFunction(Identifier.of("manhunt:internal/load"));
-            if (loadFn.isPresent()) {
-                manager.execute(loadFn.get(), manager.getScheduledCommandSource());
-                LOGGER.info("[Manhunt] manhunt:internal/load executed on first server tick");
-            } else {
-                LOGGER.error("[Manhunt] manhunt:internal/load NOT FOUND on first tick – check embedded datapack!");
-            }
+            ensureInit(server);
         });
+    }
+
+    private void ensureInit(MinecraftServer server) {
+        LOGGER.info("[Manhunt] First tick – creating scoreboard objectives and teams...");
+        ServerCommandSource src = server.getCommandSource();
+        CommandDispatcher<ServerCommandSource> disp = server.getCommandManager().getDispatcher();
+
+        for (String name : new String[]{
+                "mh_enabled", "mh_ticks", "mh_end", "mh_p_left", "mh_runner_count",
+                "mh_times_runner", "mh_swap_working", "mh_rng", "mh_rid", "mh_dst",
+                "mh_min_dst", "mh_x_o", "mh_y_o", "mh_z_o", "mh_x_n", "mh_y_n", "mh_z_n",
+                "mh_prev", "mh_display"}) {
+            initCmd(disp, src, "scoreboard objectives add " + name + " dummy");
+        }
+        initCmd(disp, src, "scoreboard objectives add mh_deaths deathCount");
+
+        initCmd(disp, src, "team add hunters");
+        initCmd(disp, src, "team add runners");
+        initCmd(disp, src, "team modify hunters color blue");
+        initCmd(disp, src, "team modify hunters friendlyfire false");
+        initCmd(disp, src, "team modify runners color red");
+        initCmd(disp, src, "team modify runners friendlyfire false");
+
+        initCmd(disp, src, "scoreboard players set $wanted_runners mh_runner_count 1");
+
+        LOGGER.info("[Manhunt] Scoreboard objectives and teams ready");
+    }
+
+    private static void initCmd(CommandDispatcher<ServerCommandSource> disp, ServerCommandSource src, String cmd) {
+        try {
+            disp.execute(cmd, src);
+        } catch (CommandSyntaxException e) {
+            LOGGER.debug("[Manhunt] initCmd skipped (already exists?): {}", cmd);
+        } catch (Exception e) {
+            LOGGER.warn("[Manhunt] initCmd failed: {} → {}", cmd, e.getMessage());
+        }
     }
 
     private static boolean isOp(ServerCommandSource src) {
