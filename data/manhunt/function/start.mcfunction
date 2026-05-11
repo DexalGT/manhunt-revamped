@@ -35,7 +35,7 @@ scoreboard players set $p_left mh_p_left 0
 execute as @a[tag=runner] run scoreboard players add $p_left mh_p_left 1
 
 # ── Reset end-grace counter ───────────────────────────────────────────────────
-scoreboard players set $end_grace mh_end 10
+scoreboard players set $end_grace mh_end 0
 
 # ── Prepare players ──────────────────────────────────────────────────────────
 gamemode survival @a
@@ -48,11 +48,12 @@ effect give @a minecraft:instant_health 1 255 true
 
 # ── Start lead phase ─────────────────────────────────────────────────────────
 # Lead timer default: 30 seconds (configurable by changing the value below)
-scoreboard players set $lead_timer mh_display 30
+scoreboard players set " " mh_display 30
+scoreboard objectives modify mh_display displayname "§e§lHead Start"
 scoreboard objectives setdisplay sidebar mh_display
 
 scoreboard players set $state mh_enabled 1
 scoreboard players set $ticks mh_ticks 0
 
-tellraw @a [{"text":"[Manhunt] ","color":"gold","bold":true},{"text":"Game starting! Hunters get a ","color":"white"},{"score":{"name":"$lead_timer","objective":"mh_display"},"color":"yellow"},{"text":" second head start.","color":"white"}]
+tellraw @a [{"text":"[Manhunt] ","color":"gold","bold":true},{"text":"Game starting! Hunters get a ","color":"white"},{"score":{"name":" ","objective":"mh_display"},"color":"yellow"},{"text":" second head start.","color":"white"}]
 tellraw @a [{"text":"Runners: ","color":"red","bold":true},{"selector":"@a[tag=runner]"},{"text":"   Hunters: ","color":"blue","bold":true},{"selector":"@a[tag=hunter]"}]
