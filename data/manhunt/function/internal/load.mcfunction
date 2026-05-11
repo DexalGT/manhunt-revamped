@@ -31,6 +31,10 @@ scoreboard objectives modify mh_display displayname ""
 # ── Teams ─────────────────────────────────────────────────────────────────────
 team add hunters
 team add runners
+team modify hunters color blue
+team modify hunters friendlyFire false
+team modify runners color red
+team modify runners friendlyFire false
 execute unless score $init mh_prev matches 1 run function manhunt:internal/first_load
 
 # ── Defaults (only if not already initialised) ────────────────────────────────

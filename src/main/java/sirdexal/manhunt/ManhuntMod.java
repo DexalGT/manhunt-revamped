@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.entity.Entity;
 import net.minecraft.server.PlayerConfigEntry;
 import net.minecraft.server.command.CommandManager;
@@ -31,6 +32,19 @@ public class ManhuntMod implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             registerCommands(dispatcher);
             LOGGER.info("[Manhunt] /manhunt commands registered (env={})", environment.name());
+        });
+
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            LOGGER.info("[Manhunt] Server started – running manhunt:internal/load to ensure scoreboard objectives exist...");
+            CommandFunctionManager manager = server.getCommandFunctionManager();
+            Optional<CommandFunction<ServerCommandSource>> loadFn =
+                    manager.getFunction(Identifier.of("manhunt:internal/load"));
+            if (loadFn.isPresent()) {
+                manager.execute(loadFn.get(), manager.getScheduledCommandSource());
+                LOGGER.info("[Manhunt] manhunt:internal/load executed successfully on server start");
+            } else {
+                LOGGER.error("[Manhunt] manhunt:internal/load NOT FOUND – embedded datapack may not be loaded!");
+            }
         });
     }
 
