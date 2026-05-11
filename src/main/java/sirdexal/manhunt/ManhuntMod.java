@@ -126,6 +126,17 @@ public class ManhuntMod implements ModInitializer {
         }
     }
 
+    // /tick requires permission level 3; datapack functions only get level 2.
+    // Call it from Java using the server command source (level 4) instead.
+    private static void runTick(MinecraftServer server, String sub) {
+        try {
+            server.getCommandManager().getDispatcher().execute("tick " + sub, server.getCommandSource());
+            LOGGER.info("[Manhunt] tick {} OK", sub);
+        } catch (CommandSyntaxException e) {
+            LOGGER.warn("[Manhunt] tick {} failed: {}", sub, e.getMessage());
+        }
+    }
+
     private static boolean isOp(ServerCommandSource src) {
         Entity entity = src.getEntity();
         if (entity instanceof ServerPlayerEntity player) {
@@ -235,6 +246,7 @@ public class ManhuntMod implements ModInitializer {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt stop  ← '{}'", src.getName());
                     runFunction(src, "manhunt:stop");
+                    runTick(src.getServer(), "freeze");
                     return 1;
                 })
             )
@@ -252,6 +264,7 @@ public class ManhuntMod implements ModInitializer {
                 .executes(context -> {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt resume  ← '{}'", src.getName());
+                    runTick(src.getServer(), "unfreeze");
                     runFunction(src, "manhunt:resume");
                     return 1;
                 })

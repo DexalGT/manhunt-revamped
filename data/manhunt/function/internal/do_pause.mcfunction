@@ -9,5 +9,3 @@ effect give @a minecraft:mining_fatigue 7200 127 true
 title @a times 0 40 10
 title @a title {"text":"PAUSED","bold":true,"color":"gray"}
 tellraw @a {"text":"[Manhunt] Game paused. Use /manhunt resume to continue.","color":"gray"}
-
-tick freeze
