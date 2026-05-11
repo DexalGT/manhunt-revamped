@@ -15,10 +15,10 @@ execute as @a[team=hunters] at @s if predicate manhunt:in_nether run function ma
 
 # ── Game-over checks ──────────────────────────────────────────────────────────
 # All runners died
-execute if score $p_left mh_p_left matches ..0 unless entity @a[team=runners,tag=!mh_died] run function manhunt:internal/hunters_win
+execute if score $state mh_enabled matches 2 if score $p_left mh_p_left matches ..0 unless entity @a[team=runners,tag=!mh_died] run function manhunt:internal/hunters_win
 
-# No hunters left
-execute unless entity @a[team=hunters] run function manhunt:internal/runners_win
+# No hunters left (state guard prevents double-trigger if hunters_win already fired this tick)
+execute if score $state mh_enabled matches 2 unless entity @a[team=hunters] run function manhunt:internal/runners_win
 
 # Ender Dragon killed — only active when a runner is physically in the End.
 # A runner in the End keeps the dimension loaded so @e[type=ender_dragon] is reliable.
