@@ -234,13 +234,16 @@ public class ManhuntMod implements ModInitializer {
                 })
             )
 
-            // Called by game_over.mcfunction at the end of every match.
-            // Emits the unique trigger line that the external Node.js watcher detects
-            // to wipe worlds and restart the server.
-            // Restricted to non-player sources so it cannot be fired from in-game chat.
-            .then(CommandManager.literal("wipe_trigger")
-                .requires(src -> src.getEntity() == null)
+            // OP-only manual reset: broadcasts a warning to all players then emits
+            // the secure trigger line that the external watcher detects to stop the
+            // server, wipe worlds, and restart with a fresh map.
+            .then(CommandManager.literal("reset")
                 .executes(context -> {
+                    ServerCommandSource src = context.getSource();
+                    LOGGER.info("[Manhunt] /manhunt reset  ← '{}'", src.getName());
+                    Text notice = Text.literal("[Manhunt] World reset incoming — server will restart shortly!");
+                    src.getServer().getPlayerManager().getPlayerList()
+                        .forEach(p -> p.sendMessage(notice));
                     LOGGER.info("[MANHUNT-RESET] TOKEN:{}", RESET_TOKEN);
                     return 1;
                 })
