@@ -1,9 +1,10 @@
-# Restore the saved game state and remove freeze effects
-scoreboard players operation $state mh_enabled = $prev_state mh_prev
+# Mark as "resuming" (state 4) to block double-calls; unfreeze tick so schedules fire
+scoreboard players set $state mh_enabled 4
 
-effect clear @a minecraft:slowness
-effect clear @a minecraft:mining_fatigue
+tick unfreeze
 
-title @a times 0 40 10
-title @a title {"text":"RESUMED","bold":true,"color":"green"}
-tellraw @a {"text":"[Manhunt] Game resumed!","color":"green"}
+title @a times 0 22 3
+title @a title {"text":"5","bold":true,"color":"yellow"}
+tellraw @a {"text":"[Manhunt] Resuming in 5 seconds...","color":"yellow"}
+
+schedule function manhunt:internal/resume_countdown_4 1s
