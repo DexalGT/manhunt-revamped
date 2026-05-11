@@ -3,6 +3,7 @@ package sirdexal.manhunt;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import net.minecraft.command.argument.EntityArgumentType;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -232,6 +233,65 @@ public class ManhuntMod implements ModInitializer {
                     runFunction(src, "manhunt:resume");
                     return 1;
                 })
+            )
+
+            // Manual role assignment — lets an OP build teams without shuffle/swap.
+            // /manhunt manual runner <player>  — make a specific player runner
+            // /manhunt manual hunter <player>  — make a specific player hunter
+            // /manhunt manual clear            — reset everyone to hunter, no runners
+            .then(CommandManager.literal("manual")
+                .then(CommandManager.literal("runner")
+                    .then(CommandManager.argument("player", EntityArgumentType.player())
+                        .executes(context -> {
+                            ServerCommandSource src = context.getSource();
+                            ServerPlayerEntity target = EntityArgumentType.getPlayer(context, "player");
+                            String name = target.getName().getString();
+                            ServerCommandSource srv = src.getServer().getCommandSource();
+                            CommandDispatcher<ServerCommandSource> d = src.getServer().getCommandManager().getDispatcher();
+                            LOGGER.info("[Manhunt] /manhunt manual runner {}  ← '{}'", name, src.getName());
+                            initCmd(d, srv, "tag " + name + " remove hunter");
+                            initCmd(d, srv, "tag " + name + " add runner");
+                            initCmd(d, srv, "team join runners " + name);
+                            initCmd(d, srv, "scoreboard players add " + name + " mh_times_runner 1");
+                            Text msg = Text.literal("[Manhunt] " + name + " is now a runner.");
+                            src.getServer().getPlayerManager().getPlayerList().forEach(p -> p.sendMessage(msg));
+                            return 1;
+                        })
+                    )
+                )
+                .then(CommandManager.literal("hunter")
+                    .then(CommandManager.argument("player", EntityArgumentType.player())
+                        .executes(context -> {
+                            ServerCommandSource src = context.getSource();
+                            ServerPlayerEntity target = EntityArgumentType.getPlayer(context, "player");
+                            String name = target.getName().getString();
+                            ServerCommandSource srv = src.getServer().getCommandSource();
+                            CommandDispatcher<ServerCommandSource> d = src.getServer().getCommandManager().getDispatcher();
+                            LOGGER.info("[Manhunt] /manhunt manual hunter {}  ← '{}'", name, src.getName());
+                            initCmd(d, srv, "tag " + name + " remove runner");
+                            initCmd(d, srv, "tag " + name + " add hunter");
+                            initCmd(d, srv, "team join hunters " + name);
+                            Text msg = Text.literal("[Manhunt] " + name + " is now a hunter.");
+                            src.getServer().getPlayerManager().getPlayerList().forEach(p -> p.sendMessage(msg));
+                            return 1;
+                        })
+                    )
+                )
+                .then(CommandManager.literal("clear")
+                    .executes(context -> {
+                        ServerCommandSource src = context.getSource();
+                        ServerCommandSource srv = src.getServer().getCommandSource();
+                        CommandDispatcher<ServerCommandSource> d = src.getServer().getCommandManager().getDispatcher();
+                        LOGGER.info("[Manhunt] /manhunt manual clear  ← '{}'", src.getName());
+                        initCmd(d, srv, "tag @a remove runner");
+                        initCmd(d, srv, "tag @a remove hunter");
+                        initCmd(d, srv, "tag @a add hunter");
+                        initCmd(d, srv, "team join hunters @a");
+                        Text msg = Text.literal("[Manhunt] All roles cleared — everyone is hunter.");
+                        src.getServer().getPlayerManager().getPlayerList().forEach(p -> p.sendMessage(msg));
+                        return 1;
+                    })
+                )
             )
 
             // OP-only manual reset: broadcasts a warning to all players then emits
