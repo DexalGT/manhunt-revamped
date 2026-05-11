@@ -6,6 +6,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.entity.Entity;
+import net.minecraft.server.PlayerConfigEntry;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -29,16 +30,15 @@ public class ManhuntMod implements ModInitializer {
     }
 
     // Returns true for console/RCON/command-blocks (no entity), or for players
-    // whose profile appears in the server op list.
-    // We avoid ServerCommandSource.hasPermissionLevel() and
-    // PlayerManager.isOperator(GameProfile) because both were removed/changed in
-    // 1.21.x. Instead we query the OperatorList directly: a non-null entry means
-    // the player is opped at level >= 1.
+    // that are in the server op list.
+    // In 1.21.11, PlayerManager.isOperator() takes a PlayerConfigEntry (not
+    // GameProfile). PlayerConfigEntry has a GameProfile constructor, so we
+    // construct one and pass it in.
     private static boolean isOp(ServerCommandSource src) {
         Entity entity = src.getEntity();
         if (entity instanceof ServerPlayerEntity player) {
             boolean op = src.getServer().getPlayerManager()
-                    .getOpList().get(player.getGameProfile()) != null;
+                    .isOperator(new PlayerConfigEntry(player.getGameProfile()));
             LOGGER.debug("[Manhunt] Permission check for '{}': op={}", player.getName().getString(), op);
             return op;
         }
