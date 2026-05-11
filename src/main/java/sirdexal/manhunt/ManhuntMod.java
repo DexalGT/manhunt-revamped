@@ -6,6 +6,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.entity.Entity;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.PlayerConfigEntry;
@@ -19,16 +20,41 @@ import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Optional;
 
 public class ManhuntMod implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("manhunt-revamped");
+
+    // Loaded once at startup from <server-root>/manhunt-reset-token.txt.
+    // If the file is missing the wipe_trigger command still works but logs a warning.
+    public static final String RESET_TOKEN = loadResetToken();
+
+    private static String loadResetToken() {
+        Path tokenFile = FabricLoader.getInstance().getGameDir().resolve("manhunt-reset-token.txt");
+        try {
+            if (Files.exists(tokenFile)) {
+                String token = Files.readString(tokenFile).strip();
+                if (!token.isEmpty()) return token;
+            }
+        } catch (IOException e) {
+            // Will warn after LOGGER is fully initialised — handled in onInitialize
+        }
+        return "CHANGE_THIS_DEFAULT_TOKEN";
+    }
 
     @Override
     public void onInitialize() {
         LOGGER.info("[Manhunt] ========================================");
         LOGGER.info("[Manhunt] Manhunt Revamped by SirDexal – loading");
         LOGGER.info("[Manhunt] ========================================");
+        if ("CHANGE_THIS_DEFAULT_TOKEN".equals(RESET_TOKEN)) {
+            LOGGER.warn("[Manhunt] manhunt-reset-token.txt not found — wipe trigger is using the insecure default token!");
+        } else {
+            LOGGER.info("[Manhunt] Reset token loaded from manhunt-reset-token.txt");
+        }
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             registerCommands(dispatcher);
@@ -204,6 +230,18 @@ public class ManhuntMod implements ModInitializer {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt resume  ← '{}'", src.getName());
                     runFunction(src, "manhunt:resume");
+                    return 1;
+                })
+            )
+
+            // Called by game_over.mcfunction at the end of every match.
+            // Emits the unique trigger line that the external Node.js watcher detects
+            // to wipe worlds and restart the server.
+            // Restricted to non-player sources so it cannot be fired from in-game chat.
+            .then(CommandManager.literal("wipe_trigger")
+                .requires(src -> src.getEntity() == null)
+                .executes(context -> {
+                    LOGGER.info("[MANHUNT-RESET] TOKEN:{}", RESET_TOKEN);
                     return 1;
                 })
             )

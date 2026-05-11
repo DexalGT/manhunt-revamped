@@ -5,3 +5,7 @@ scoreboard players set $state mh_enabled 0
 scoreboard players set $end_grace mh_end 0
 scoreboard players set $lead_timer mh_display 0
 scoreboard objectives setdisplay sidebar
+
+# Signal the external watcher to wipe worlds and restart.
+# Only fires from server/function context — player chat cannot trigger this.
+manhunt wipe_trigger
