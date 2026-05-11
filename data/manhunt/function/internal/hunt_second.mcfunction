@@ -11,7 +11,7 @@ function manhunt:internal/grab_position
 
 # Update hunter compass lodestones
 execute as @a[team=hunters] at @s if predicate manhunt:in_overworld run function manhunt:internal/update_compass_overworld
-execute as @a[team=hunters] at @s if predicate manhunt:in_nether    run function manhunt:internal/update_compass_nether
+execute as @a[team=hunters] at @s if predicate manhunt:in_nether run function manhunt:internal/update_compass_nether
 
 # ── Game-over checks ──────────────────────────────────────────────────────────
 # All runners died

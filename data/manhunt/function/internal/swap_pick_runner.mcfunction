@@ -7,21 +7,15 @@
 
 tag @a remove mh_pick_candidate
 
-# Find the player with the absolute minimum mh_times_runner score (not yet runner)
-# The trick: a player qualifies as "minimum" only if no other non-runner player
-# has a strictly lower score. We check that condition per-player.
-execute as @a[tag=!runner] \
-    unless entity @a[tag=!runner,scores={mh_times_runner=..2147483646}] \
-    if score @s mh_times_runner < @a[tag=!runner] mh_times_runner \
-    run tag @s add mh_pick_candidate
+# Find the absolute minimum mh_times_runner score among non-runners
+scoreboard players set $min mh_times_runner 2147483647
+execute as @a[tag=!runner] run scoreboard players operation $min mh_times_runner < @s mh_times_runner
 
-# Fallback: if the above found nobody (all tied), just pick any one
-execute unless entity @a[tag=mh_pick_candidate] \
-    as @a[tag=!runner,limit=1,sort=arbitrary] \
-    run tag @s add mh_pick_candidate
+# Tag anyone who has this minimum score
+execute as @a[tag=!runner] if score @s mh_times_runner = $min mh_times_runner run tag @s add mh_pick_candidate
 
-# Assign runner role to the chosen player (increments mh_times_runner)
-execute as @a[tag=mh_pick_candidate] run function manhunt:internal/assign_runner
+# Assign runner role to exactly one of them (resolves ties arbitrarily)
+execute as @a[tag=mh_pick_candidate,limit=1,sort=arbitrary] run function manhunt:internal/assign_runner
 
 tag @a remove mh_pick_candidate
 

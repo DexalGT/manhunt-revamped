@@ -26,10 +26,7 @@ scoreboard players set $best mh_dst 2147483647
 execute as @e[team=runners] run function manhunt:internal/find_closest_nether
 
 # ── Handle runner not yet in Nether (all coords = 0) ─────────────────────────
-execute if score @e[tag=mh_closest,limit=1] mh_x_n matches 0 \
-       if score @e[tag=mh_closest,limit=1] mh_y_n matches 0 \
-       if score @e[tag=mh_closest,limit=1] mh_z_n matches 0 \
-       run function manhunt:internal/runner_not_in_nether
+execute if score @e[tag=mh_closest,limit=1] mh_x_n matches 0 if score @e[tag=mh_closest,limit=1] mh_y_n matches 0 if score @e[tag=mh_closest,limit=1] mh_z_n matches 0 run function manhunt:internal/runner_not_in_nether
 
 execute unless score @e[tag=mh_closest,limit=1] mh_x_n matches 0 run function manhunt:internal/do_set_compass_nether
 execute unless score @e[tag=mh_closest,limit=1] mh_z_n matches 0 run function manhunt:internal/do_set_compass_nether

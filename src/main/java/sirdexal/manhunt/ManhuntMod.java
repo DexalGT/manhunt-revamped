@@ -17,7 +17,7 @@ public class ManhuntMod implements ModInitializer {
 
     private void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher) {
         dispatcher.register(CommandManager.literal("manhunt")
-            .requires(source -> source.hasPermissionLevel(2)) // Require OP (level 2)
+            // Require OP (level 2) - handled by the underlying /function command automatically
             
             // /manhunt shuffle
             .then(CommandManager.literal("shuffle")

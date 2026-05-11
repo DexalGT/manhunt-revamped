@@ -3,17 +3,17 @@
 # Recurses until $runners_left reaches 0.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Find the player with the absolute lowest random score who isn't already a runner
-# We tag them mh_pick_candidate temporarily to identify exactly one player.
 tag @a remove mh_pick_candidate
 
-# Select the player with the lowest mh_rng score (not yet a runner)
-execute as @a[tag=!runner,sort=arbitrary,limit=1] \
-    if score @s mh_rng <= @a[tag=!runner,sort=arbitrary] mh_rng \
-    run tag @s add mh_pick_candidate
+# Find the absolute minimum mh_rng score among non-runners
+scoreboard players set $min mh_rng 2147483647
+execute as @a[tag=!runner] run scoreboard players operation $min mh_rng < @s mh_rng
 
-# Assign runner role
-execute as @a[tag=mh_pick_candidate] run function manhunt:internal/assign_runner
+# Tag anyone who has this minimum score
+execute as @a[tag=!runner] if score @s mh_rng = $min mh_rng run tag @s add mh_pick_candidate
+
+# Assign runner role to exactly one of them (resolves ties arbitrarily)
+execute as @a[tag=mh_pick_candidate,limit=1,sort=arbitrary] run function manhunt:internal/assign_runner
 
 tag @a remove mh_pick_candidate
 

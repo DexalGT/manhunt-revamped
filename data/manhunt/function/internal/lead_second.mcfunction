@@ -1,8 +1,8 @@
 # ── Lead phase: blind + slow hunters, tick down timer ────────────────────────
-effect give @a[team=hunters] minecraft:slowness      2 255 true
-effect give @a[team=hunters] minecraft:blindness     2 255 true
+effect give @a[team=hunters] minecraft:slowness 2 255 true
+effect give @a[team=hunters] minecraft:blindness 2 255 true
 effect give @a[team=hunters] minecraft:mining_fatigue 2 255 true
-effect give @a[team=hunters] minecraft:weakness      2 255 true
+effect give @a[team=hunters] minecraft:weakness 2 255 true
 
 scoreboard players remove $lead_timer mh_display 1
 
