@@ -126,6 +126,17 @@ public class ManhuntMod implements ModInitializer {
         }
     }
 
+    // Returns the current $state mh_enabled value (0=idle,1=lead,2=hunt,3=paused,4=resuming).
+    // scoreboard players get returns the score as its Brigadier result integer.
+    private static int getState(MinecraftServer server) {
+        try {
+            return server.getCommandManager().getDispatcher()
+                    .execute("scoreboard players get $state mh_enabled", server.getCommandSource());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     // /tick requires permission level 3; datapack functions only get level 2.
     // Call it from Java using the server command source (level 4) instead.
     private static void runTick(MinecraftServer server, String sub) {
@@ -246,7 +257,7 @@ public class ManhuntMod implements ModInitializer {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt stop  ← '{}'", src.getName());
                     runFunction(src, "manhunt:stop");
-                    runTick(src.getServer(), "freeze");
+                    if (getState(src.getServer()) == 3) runTick(src.getServer(), "freeze");
                     return 1;
                 })
             )
@@ -264,7 +275,7 @@ public class ManhuntMod implements ModInitializer {
                 .executes(context -> {
                     ServerCommandSource src = context.getSource();
                     LOGGER.info("[Manhunt] /manhunt resume  ← '{}'", src.getName());
-                    runTick(src.getServer(), "unfreeze");
+                    if (getState(src.getServer()) == 3) runTick(src.getServer(), "unfreeze");
                     runFunction(src, "manhunt:resume");
                     return 1;
                 })
