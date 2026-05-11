@@ -28,13 +28,17 @@ public class ManhuntMod implements ModInitializer {
         });
     }
 
-    // Returns true for console/RCON/command-blocks (no entity), or for players that
-    // are in the server's op list. hasPermissionLevel() was removed from
-    // ServerCommandSource in 1.21.x so we check via PlayerManager.isOperator().
+    // Returns true for console/RCON/command-blocks (no entity), or for players
+    // whose profile appears in the server op list.
+    // We avoid ServerCommandSource.hasPermissionLevel() and
+    // PlayerManager.isOperator(GameProfile) because both were removed/changed in
+    // 1.21.x. Instead we query the OperatorList directly: a non-null entry means
+    // the player is opped at level >= 1.
     private static boolean isOp(ServerCommandSource src) {
         Entity entity = src.getEntity();
         if (entity instanceof ServerPlayerEntity player) {
-            boolean op = src.getServer().getPlayerManager().isOperator(player.getGameProfile());
+            boolean op = src.getServer().getPlayerManager()
+                    .getOpList().get(player.getGameProfile()) != null;
             LOGGER.debug("[Manhunt] Permission check for '{}': op={}", player.getName().getString(), op);
             return op;
         }
