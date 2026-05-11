@@ -5,7 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.entity.Entity;
 import net.minecraft.server.PlayerConfigEntry;
 import net.minecraft.server.command.CommandManager;
@@ -34,16 +34,28 @@ public class ManhuntMod implements ModInitializer {
             LOGGER.info("[Manhunt] /manhunt commands registered (env={})", environment.name());
         });
 
-        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-            LOGGER.info("[Manhunt] Server started – running manhunt:internal/load to ensure scoreboard objectives exist...");
+        // SERVER_STARTED fires before the function registry is populated, so we
+        // wait for the first server tick instead — by then all datapacks are loaded.
+        boolean[] initDone = {false};
+        ServerTickEvents.START_SERVER_TICK.register(server -> {
+            if (initDone[0]) return;
+            initDone[0] = true;
+
+            // If #minecraft:load already ran, the key objective already exists — skip.
+            if (server.getScoreboard().getNullableObjective("mh_enabled") != null) {
+                LOGGER.info("[Manhunt] Scoreboard already initialised (#minecraft:load ran OK)");
+                return;
+            }
+
+            LOGGER.info("[Manhunt] Scoreboard missing on first tick – running manhunt:internal/load from Java...");
             CommandFunctionManager manager = server.getCommandFunctionManager();
             Optional<CommandFunction<ServerCommandSource>> loadFn =
                     manager.getFunction(Identifier.of("manhunt:internal/load"));
             if (loadFn.isPresent()) {
                 manager.execute(loadFn.get(), manager.getScheduledCommandSource());
-                LOGGER.info("[Manhunt] manhunt:internal/load executed successfully on server start");
+                LOGGER.info("[Manhunt] manhunt:internal/load executed on first server tick");
             } else {
-                LOGGER.error("[Manhunt] manhunt:internal/load NOT FOUND – embedded datapack may not be loaded!");
+                LOGGER.error("[Manhunt] manhunt:internal/load NOT FOUND on first tick – check embedded datapack!");
             }
         });
     }
