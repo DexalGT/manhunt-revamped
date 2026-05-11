@@ -2,17 +2,15 @@ package sirdexal.manhunt;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.entity.Entity;
-import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.PlayerConfigEntry;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.function.CommandFunction;
 import net.minecraft.server.function.CommandFunctionManager;
-import net.minecraft.server.function.MacroException;
-import net.minecraft.server.function.Procedure;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
@@ -36,8 +34,6 @@ public class ManhuntMod implements ModInitializer {
         });
     }
 
-    // isOperator() was changed to take PlayerConfigEntry in 1.21.11.
-    // We construct one from the GameProfile since that constructor still exists.
     private static boolean isOp(ServerCommandSource src) {
         Entity entity = src.getEntity();
         if (entity instanceof ServerPlayerEntity player) {
@@ -46,14 +42,17 @@ public class ManhuntMod implements ModInitializer {
             LOGGER.debug("[Manhunt] Permission check for '{}': op={}", player.getName().getString(), op);
             return op;
         }
-        return true; // console / RCON / command blocks always allowed
+        return true;
     }
 
-    // Execute a plain (non-macro) datapack function.
+    // Execute a datapack function by its namespaced ID (e.g. "manhunt:shuffle").
+    // Uses CommandFunctionManager directly — calling /function via the Brigadier
+    // dispatcher was removed in 1.21.11 (throws UnsupportedOperationException).
     private void runFunction(ServerCommandSource callerSource, String functionId) {
         LOGGER.info("[Manhunt] >>> Executing '{}'  caller='{}'", functionId, callerSource.getName());
         CommandFunctionManager manager = callerSource.getServer().getCommandFunctionManager();
-        Optional<CommandFunction<ServerCommandSource>> fnOpt = manager.getFunction(Identifier.of(functionId));
+        Optional<CommandFunction<ServerCommandSource>> fnOpt =
+                manager.getFunction(Identifier.of(functionId));
 
         if (fnOpt.isEmpty()) {
             LOGGER.error("[Manhunt] <<< Function '{}' not found in datapack!", functionId);
@@ -71,34 +70,28 @@ public class ManhuntMod implements ModInitializer {
         }
     }
 
-    // Execute a macro datapack function with NbtCompound arguments.
-    // withMacroReplaced() substitutes the macro variables and returns a Procedure
-    // which is then passed back to the function manager for execution.
-    private void runMacroFunction(ServerCommandSource callerSource, String functionId, NbtCompound args) {
-        LOGGER.info("[Manhunt] >>> Executing macro '{}'  caller='{}'  args={}",
-                functionId, callerSource.getName(), args);
-        CommandFunctionManager manager = callerSource.getServer().getCommandFunctionManager();
-        Optional<CommandFunction<ServerCommandSource>> fnOpt = manager.getFunction(Identifier.of(functionId));
-
-        if (fnOpt.isEmpty()) {
-            LOGGER.error("[Manhunt] <<< Macro function '{}' not found in datapack!", functionId);
-            callerSource.sendError(Text.literal("[Manhunt] Function not found: " + functionId));
+    // Macro functions cannot be executed via CommandFunctionManager without a
+    // Procedure API that has no execute() method. Instead, Java sets the count
+    // directly in the scoreboard via the Brigadier dispatcher (scoreboard
+    // commands are not affected by the 1.21.11 function restriction), then
+    // calls the non-macro do_shuffle function via the function manager.
+    private void runShuffleWithCount(ServerCommandSource callerSource, int count) {
+        LOGGER.info("[Manhunt] >>> shuffle count={}  caller='{}'", count, callerSource.getName());
+        ServerCommandSource serverSrc = callerSource.getServer().getCommandSource();
+        try {
+            // Set $wanted_runners mh_runner_count = count via scoreboard command.
+            // This is a plain scoreboard command, not /function, so dispatcher works.
+            String scoreCmd = "scoreboard players set $wanted_runners mh_runner_count " + count;
+            LOGGER.info("[Manhunt]     Scoreboard cmd: '{}'", scoreCmd);
+            callerSource.getServer().getCommandManager().getDispatcher()
+                    .execute(scoreCmd, serverSrc);
+        } catch (CommandSyntaxException e) {
+            LOGGER.error("[Manhunt] <<< scoreboard set failed: {}", e.getMessage());
+            callerSource.sendError(Text.literal("[Manhunt] Could not set runner count: " + e.getMessage()));
             return;
         }
-
-        try {
-            long t = System.currentTimeMillis();
-            Procedure<ServerCommandSource> procedure =
-                    fnOpt.get().withMacroReplaced(args, manager.getDispatcher());
-            manager.execute(procedure, manager.getScheduledCommandSource());
-            LOGGER.info("[Manhunt] <<< macro '{}' OK  time={}ms", functionId, System.currentTimeMillis() - t);
-        } catch (MacroException e) {
-            LOGGER.error("[Manhunt] <<< '{}' MACRO ERROR: {}", functionId, e.getMessage());
-            callerSource.sendError(Text.literal("[Manhunt] Macro error: " + e.getMessage()));
-        } catch (Exception e) {
-            LOGGER.error("[Manhunt] <<< '{}' ERROR: {}", functionId, e.toString(), e);
-            callerSource.sendError(Text.literal("[Manhunt] Error: " + e.getMessage()));
-        }
+        // Now call the non-macro do_shuffle which reads mh_runner_count from scoreboard.
+        runFunction(callerSource, "manhunt:internal/do_shuffle");
     }
 
     private void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher) {
@@ -119,9 +112,7 @@ public class ManhuntMod implements ModInitializer {
                         ServerCommandSource src = context.getSource();
                         int count = IntegerArgumentType.getInteger(context, "count");
                         LOGGER.info("[Manhunt] /manhunt shuffle {}  ← '{}'", count, src.getName());
-                        NbtCompound args = new NbtCompound();
-                        args.putInt("count", count);
-                        runMacroFunction(src, "manhunt:shuffle_with_count", args);
+                        runShuffleWithCount(src, count);
                         return 1;
                     })
                 )
