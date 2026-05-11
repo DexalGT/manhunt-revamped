@@ -120,6 +120,8 @@ public class ManhuntMod implements ModInitializer {
     // Execute a datapack function by its namespaced ID (e.g. "manhunt:shuffle").
     // Uses CommandFunctionManager directly — calling /function via the Brigadier
     // dispatcher was removed in 1.21.11 (throws UnsupportedOperationException).
+    // Runs with the server's own command source (console-level permissions, @a
+    // selects all online players, tick freeze and effect commands all work).
     private void runFunction(ServerCommandSource callerSource, String functionId) {
         LOGGER.info("[Manhunt] >>> Executing '{}'  caller='{}'", functionId, callerSource.getName());
         CommandFunctionManager manager = callerSource.getServer().getCommandFunctionManager();
@@ -134,7 +136,7 @@ public class ManhuntMod implements ModInitializer {
 
         try {
             long t = System.currentTimeMillis();
-            manager.execute(fnOpt.get(), manager.getScheduledCommandSource());
+            manager.execute(fnOpt.get(), callerSource.getServer().getCommandSource());
             LOGGER.info("[Manhunt] <<< '{}' OK  time={}ms", functionId, System.currentTimeMillis() - t);
         } catch (Exception e) {
             LOGGER.error("[Manhunt] <<< '{}' ERROR: {}", functionId, e.toString(), e);
