@@ -4,6 +4,11 @@ on:
     tags:
       - 'v*' # Triggers when you push a tag like "v1.0.0"
   workflow_dispatch: # Allows you to manually trigger a release from the GitHub UI
+    inputs:
+      tag_name:
+        description: 'Tag name for manual release (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
 
 permissions:
   contents: write # Required to create a release and upload assets
@@ -33,7 +38,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: build/libs/*.jar
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          name: Release ${{ github.event.inputs.tag_name || github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
