@@ -8,8 +8,8 @@ team join hunters @a
 tag @a remove runner
 tag @a remove hunter
 
-# ── Assign a random score to every player ────────────────────────────────────
-execute as @a store result score @s mh_rng run data get entity @s UUID[3]
+# ── Assign a truly random score to every player ──────────────────────────────
+execute as @a run execute store result score @s mh_rng run random value 1..2147483647
 
 # ── Pick runners: iterate from lowest random score upward ────────────────────
 scoreboard players operation $runners_left mh_swap_working = $wanted_runners mh_runner_count
