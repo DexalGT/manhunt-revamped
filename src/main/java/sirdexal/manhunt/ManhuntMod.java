@@ -94,6 +94,26 @@ public class ManhuntMod implements ModInitializer {
         initCmd(disp, src, "scoreboard players set $wanted_runners mh_runner_count 1");
 
         LOGGER.info("[Manhunt] Scoreboard objectives and teams ready");
+
+        // Log every loaded manhunt:* function so we can verify the datapack contents in logs.
+        CommandFunctionManager fnMgr = server.getCommandFunctionManager();
+        String[] critical = {
+            "manhunt:stop", "manhunt:start", "manhunt:resume", "manhunt:shuffle",
+            "manhunt:swap", "manhunt:reset_history",
+            "manhunt:internal/do_pause", "manhunt:internal/do_resume",
+            "manhunt:internal/resume_go", "manhunt:internal/tick",
+            "manhunt:internal/game_over"
+        };
+        LOGGER.info("[Manhunt] --- Function load check ---");
+        for (String id : critical) {
+            boolean present = fnMgr.getFunction(Identifier.of(id)).isPresent();
+            if (present) {
+                LOGGER.info("[Manhunt]   OK  {}", id);
+            } else {
+                LOGGER.error("[Manhunt]  MISSING  {} ← datapack may be incomplete!", id);
+            }
+        }
+        LOGGER.info("[Manhunt] --- End function check ---");
     }
 
     private static void initCmd(CommandDispatcher<ServerCommandSource> disp, ServerCommandSource src, String cmd) {
