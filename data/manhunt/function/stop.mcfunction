@@ -1,7 +1,10 @@
-# /function manhunt:stop
-# Ends the current game cleanly from operator command
-execute as @a run function manhunt:internal/remove_compass
-scoreboard players set $state mh_enabled 0
-scoreboard objectives setdisplay sidebar
-title @a title {"text":"Game Stopped","bold":true,"color":"gray"}
-tellraw @a {"text":"[Manhunt] Game stopped by operator.","color":"gray"}
+# /manhunt stop — pauses the active game and freezes all players.
+# Use /manhunt resume to continue.
+
+execute if score $state mh_enabled matches 3 run tellraw @a {"text":"[Manhunt] Already paused. Use /manhunt resume to continue.","color":"gray"}
+execute if score $state mh_enabled matches 3 run return 0
+
+execute if score $state mh_enabled matches 0 run tellraw @a {"text":"[Manhunt] No active game to stop.","color":"gray"}
+execute if score $state mh_enabled matches 0 run return 0
+
+function manhunt:internal/do_pause

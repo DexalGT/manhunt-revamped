@@ -4,4 +4,6 @@ scoreboard players reset @a mh_rid
 scoreboard players set $state mh_enabled 2
 scoreboard players set $lead_timer mh_display 0
 
+title @a times 0 50 20
+title @a title {"text":"GO!","bold":true,"color":"green"}
 tellraw @a {"text":"The hunt has begun!","color":"red","bold":true}

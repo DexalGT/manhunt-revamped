@@ -198,6 +198,15 @@ public class ManhuntMod implements ModInitializer {
                     return 1;
                 })
             )
+
+            .then(CommandManager.literal("resume")
+                .executes(context -> {
+                    ServerCommandSource src = context.getSource();
+                    LOGGER.info("[Manhunt] /manhunt resume  ← '{}'", src.getName());
+                    runFunction(src, "manhunt:resume");
+                    return 1;
+                })
+            )
         );
 
         LOGGER.info("[Manhunt] /manhunt command tree ready");
