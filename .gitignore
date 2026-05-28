@@ -1,0 +1,18 @@
+# Gradle / Loom build output
+.gradle/
+build/
+out/
+classes/
+run/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.launch
+bin/
+
+# OS
+.DS_Store

@@ -298,7 +298,6 @@ public class GameManager {
         state = State.PAUSED;
         for (ServerPlayerEntity p : online()) {
             p.setVelocity(0, 0, 0);
-            p.velocityModified = true;
             applyFreezeEffects(p);
         }
         tickFreeze(true);
@@ -538,7 +537,6 @@ public class GameManager {
         // so this is a real freeze — no fragile per-tick teleport required.
         for (ServerPlayerEntity p : online()) {
             p.setVelocity(0, 0, 0);
-            p.velocityModified = true;
             p.fallDistance = 0;
             if (!p.hasStatusEffect(StatusEffects.SLOWNESS)) applyFreezeEffects(p);
         }
