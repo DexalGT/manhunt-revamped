@@ -147,18 +147,22 @@ public class ManhuntMod implements ModInitializer {
                 .then(CommandManager.literal("clear")
                     .executes(ctx -> { GAME.manualClear(); return 1; })))
 
-            // OP-only world reset: emits the secure token the external watcher detects.
-            // Team data persists across the reset (stored outside the world folders).
+            // OP-only world reset: starts a 10-second cancellable countdown so a
+            // misclick can't instantly wipe the world. After the countdown the
+            // secure token the external watcher detects is emitted. Team data
+            // persists across the reset (stored outside the world folders).
             .then(CommandManager.literal("reset")
                 .executes(ctx -> {
-                    ServerCommandSource src = ctx.getSource();
-                    LOGGER.info("[Manhunt] /manhunt reset  ← '{}'", src.getName());
-                    DATA.save();
-                    Text notice = Text.literal("[Manhunt] World reset incoming — server will restart shortly! (Teams are kept.)");
-                    src.getServer().getPlayerManager().getPlayerList().forEach(p -> p.sendMessage(notice, false));
-                    LOGGER.info("[MANHUNT-RESET] TOKEN:{}", RESET_TOKEN);
+                    LOGGER.info("[Manhunt] /manhunt reset (countdown) ← '{}'", ctx.getSource().getName());
+                    GAME.startResetCountdown();
                     return 1;
-                }))
+                })
+                .then(CommandManager.literal("cancel")
+                    .executes(ctx -> {
+                        LOGGER.info("[Manhunt] /manhunt reset cancel ← '{}'", ctx.getSource().getName());
+                        GAME.cancelResetCountdown();
+                        return 1;
+                    })))
         );
     }
 }

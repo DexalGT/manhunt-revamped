@@ -57,6 +57,7 @@ public class GameManager {
     private int tickCounter = 0;     // counts server ticks for the 20-tick second gate
     private int leadTimer = 0;       // seconds left in the lead phase
     private int resumeSecondsLeft = 0;
+    private int resetCountdown = -1; // seconds left before a world reset fires; -1 = inactive
 
     // Runner death tracking for the current hunt.
     private final Set<UUID> deadRunners = new HashSet<>();
@@ -354,8 +355,60 @@ public class GameManager {
         tickCounter++;
         if (tickCounter >= 20) {
             tickCounter = 0;
+            if (resetCountdown > 0) resetCountdownSecond();
             secondTick();
         }
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    //  World-reset countdown (so a misclick on /manhunt reset can be cancelled)
+    // ───────────────────────────────────────────────────────────────────────────
+    public void startResetCountdown() {
+        if (resetCountdown > 0) {
+            broadcast(Text.literal("[Manhunt] A reset is already counting down (" + resetCountdown
+                    + "s left). Use /manhunt reset cancel to stop it.").formatted(Formatting.YELLOW));
+            return;
+        }
+        resetCountdown = 10;
+        broadcastResetWarning(resetCountdown);
+    }
+
+    public void cancelResetCountdown() {
+        if (resetCountdown <= 0) {
+            broadcast(Text.literal("[Manhunt] No world reset is in progress.").formatted(Formatting.GRAY));
+            return;
+        }
+        resetCountdown = -1;
+        broadcastTitle(Text.literal("RESET CANCELLED").formatted(Formatting.GREEN, Formatting.BOLD), null, 0, 40, 10);
+        broadcast(Text.literal("[Manhunt] World reset cancelled.").formatted(Formatting.GREEN));
+    }
+
+    private void resetCountdownSecond() {
+        resetCountdown--;
+        if (resetCountdown <= 0) {
+            resetCountdown = -1;
+            triggerReset();
+        } else {
+            broadcastResetWarning(resetCountdown);
+        }
+    }
+
+    private void broadcastResetWarning(int seconds) {
+        broadcastTitle(
+                Text.literal("RESET IN " + seconds).formatted(Formatting.RED, Formatting.BOLD),
+                Text.literal("/manhunt reset cancel to stop").formatted(Formatting.YELLOW),
+                0, 25, 5);
+        broadcast(Text.literal("[Manhunt] World reset in " + seconds + "s — /manhunt reset cancel to stop.")
+                .formatted(Formatting.RED));
+    }
+
+    private void triggerReset() {
+        data.save();
+        broadcastTitle(Text.literal("RESETTING").formatted(Formatting.DARK_RED, Formatting.BOLD), null, 0, 60, 20);
+        broadcast(Text.literal("[Manhunt] World reset incoming — server will restart shortly! (Teams are kept.)")
+                .formatted(Formatting.RED, Formatting.BOLD));
+        // The external watcher detects this exact log line and runs the wipe/restart.
+        ManhuntMod.LOGGER.info("[MANHUNT-RESET] TOKEN:{}", ManhuntMod.RESET_TOKEN);
     }
 
     private void secondTick() {
@@ -404,10 +457,13 @@ public class GameManager {
     }
 
     private void huntSecond() {
-        // Update every hunter's tracking compass.
+        // Update every hunter's existing tracking compass in place (held one
+        // included — it lives in the main inventory list). We do NOT hand out a
+        // new compass here; that happens once at hunt start / on join, so a
+        // hunter who threw theirs away just goes without rather than getting
+        // spammed a fresh one every second.
         for (ServerPlayerEntity hunter : online()) {
             if (data.getRole(hunter.getUuid()) == Role.HUNTER && !hunter.isSpectator()) {
-                giveCompass(hunter);
                 updateHunterCompass(hunter);
             }
         }
