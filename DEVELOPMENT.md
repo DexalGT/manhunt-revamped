@@ -167,7 +167,24 @@ Native lodestone targeting — no item NBT macros.
 - On `SERVER_STARTED` and on player `JOIN`, roles are re-applied to the vanilla scoreboard
   teams (`runners` red / `hunters` blue, friendly-fire off) for nametag colours.
 
-### 3.9 Reset countdown
+### 3.9 Logging (`ManhuntLog`)
+
+Every Manhunt message goes to **both** the server console/`latest.log` (via SLF4J, prefixed
+`[Manhunt]`) **and** a dedicated file at **`<gameDir>/manhunt/logs.txt`**:
+
+- On each server start, the previous `logs.txt` is rotated to `logs-<yyyyMMdd-HHmmss>.txt` and a
+  fresh per-instance file is opened with a session header.
+- File lines are timestamped: `[HH:mm:ss.SSS] [LEVEL] message`. `DEBUG` always goes to the
+  file (so it's "crazy detailed") but only reaches the console if console debug is enabled.
+- `ManhuntLog.error(msg, throwable)` writes the full stack trace to both sinks.
+- **Every command** runs through `ManhuntMod.run(...)`, which logs the invocation + caller and,
+  on exception, logs the stack trace **and** sends the error to the player who ran it.
+- All Fabric event handlers and the tick loop are wrapped in try/catch → `ManhuntLog.error`, so
+  a thrown exception is always visible and never silently swallowed.
+- The world-reset token line is emitted via `ManhuntLog.slf4j()` directly (no `[Manhunt]`
+  prefix) so the watcher's regex still matches it exactly.
+
+### 3.10 Reset countdown
 
 `/manhunt reset` sets `resetCountdown = 10`; the per-second loop broadcasts a title + chat each
 second and fires `triggerReset()` at zero. `triggerReset()` saves data and logs the exact line

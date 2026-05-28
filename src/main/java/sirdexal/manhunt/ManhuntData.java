@@ -51,11 +51,13 @@ public class ManhuntData {
                 String json = Files.readString(path);
                 data = GSON.fromJson(json, ManhuntData.class);
                 if (data == null) data = new ManhuntData();
+                ManhuntLog.info("Loaded team data from {}", path.toAbsolutePath());
             } else {
                 data = new ManhuntData();
+                ManhuntLog.info("No existing team data at {} — starting fresh.", path.toAbsolutePath());
             }
         } catch (Exception e) {
-            ManhuntMod.LOGGER.error("[Manhunt] Failed to read {} — starting fresh: {}", path, e.toString());
+            ManhuntLog.error("Failed to read " + path + " — starting fresh", e);
             data = new ManhuntData();
         }
         if (data.players == null) data.players = new HashMap<>();
@@ -68,8 +70,10 @@ public class ManhuntData {
         try {
             Files.createDirectories(file.getParent());
             Files.writeString(file, GSON.toJson(this));
+            ManhuntLog.debug("Saved team data ({} players, wantedRunners={}) to {}",
+                    players.size(), wantedRunners, file);
         } catch (IOException e) {
-            ManhuntMod.LOGGER.error("[Manhunt] Failed to save {}: {}", file, e.toString());
+            ManhuntLog.error("Failed to save " + file, e);
         }
     }
 

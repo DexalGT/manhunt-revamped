@@ -2,6 +2,7 @@ package sirdexal.manhunt;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -16,15 +17,13 @@ import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 public class ManhuntMod implements ModInitializer {
-    public static final Logger LOGGER = LoggerFactory.getLogger("manhunt-revamped");
+    public static final String MOD_ID = "sirdexal_manhunt";
 
     // Loaded once at startup from <server-root>/manhunt-reset-token.txt.
     public static final String RESET_TOKEN = loadResetToken();
@@ -41,63 +40,137 @@ public class ManhuntMod implements ModInitializer {
                 if (!token.isEmpty()) return token;
             }
         } catch (IOException e) {
-            // warned in onInitialize
+            // warned in onInitialize once logging is up
         }
         return "CHANGE_THIS_DEFAULT_TOKEN";
     }
 
     @Override
     public void onInitialize() {
-        LOGGER.info("[Manhunt] ========================================");
-        LOGGER.info("[Manhunt] Manhunt Revamped by SirDexal – loading (mod build)");
-        LOGGER.info("[Manhunt] ========================================");
+        Path manhuntDir = FabricLoader.getInstance().getGameDir().resolve("manhunt");
+        String version = FabricLoader.getInstance().getModContainer(MOD_ID)
+                .map(c -> c.getMetadata().getVersion().getFriendlyString())
+                .orElse("unknown");
+        ManhuntLog.init(manhuntDir, version);
+
+        ManhuntLog.info("========================================");
+        ManhuntLog.info("Manhunt Revamped v{} by SirDexal — initializing (native mod)", version);
+        ManhuntLog.info("Game directory: {}", FabricLoader.getInstance().getGameDir().toAbsolutePath());
+        ManhuntLog.info("========================================");
+
         if ("CHANGE_THIS_DEFAULT_TOKEN".equals(RESET_TOKEN)) {
-            LOGGER.warn("[Manhunt] manhunt-reset-token.txt not found — wipe trigger is using the insecure default token!");
+            ManhuntLog.warn("manhunt-reset-token.txt not found — /manhunt reset is using the INSECURE default token!");
         } else {
-            LOGGER.info("[Manhunt] Reset token loaded from manhunt-reset-token.txt");
+            ManhuntLog.info("Reset token loaded ({} chars) from manhunt-reset-token.txt", RESET_TOKEN.length());
         }
 
-        DATA = ManhuntData.load();
-        GAME = new GameManager(DATA);
-        LOGGER.info("[Manhunt] Loaded persistent team data: {} players, wantedRunners={}",
-                DATA.players.size(), DATA.wantedRunners);
+        try {
+            DATA = ManhuntData.load();
+            GAME = new GameManager(DATA);
+            ManhuntLog.info("Persistent data loaded: {} known player(s), wantedRunners={}",
+                    DATA.players.size(), DATA.wantedRunners);
+        } catch (Exception e) {
+            ManhuntLog.error("FATAL: failed to load persistent data during init", e);
+            DATA = new ManhuntData();
+            GAME = new GameManager(DATA);
+        }
 
-        // Attach the server + (re)create teams when it starts.
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-            GAME.attachServer(server);
-            LOGGER.info("[Manhunt] Server started — teams ensured, roles re-applied.");
+            try {
+                GAME.attachServer(server);
+                ManhuntLog.info("Server started — scoreboard teams ensured, roles re-applied to online players.");
+            } catch (Exception e) {
+                ManhuntLog.error("Error during SERVER_STARTED setup", e);
+            }
         });
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> DATA.save());
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            ManhuntLog.info("Server stopping — saving persistent data.");
+            try {
+                DATA.save();
+            } catch (Exception e) {
+                ManhuntLog.error("Error saving data on shutdown", e);
+            }
+            ManhuntLog.close();
+        });
 
-        // Re-apply persisted role/team on (re)join — survives a world reset.
-        ServerPlayerEvents.JOIN.register(player -> GAME.onPlayerJoin(player));
-
-        // Eliminated runners respawn as spectators.
-        ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> GAME.onPlayerRespawn(newPlayer));
-
-        // Runner death detection.
-        ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
-            if (entity instanceof ServerPlayerEntity player) {
-                GAME.onRunnerDeath(player);
+        ServerPlayerEvents.JOIN.register(player -> {
+            try {
+                ManhuntLog.info("JOIN  {} (uuid={}) — role={} timesRunner={}",
+                        player.getName().getString(), player.getUuid(),
+                        DATA.getRole(player.getUuid()), DATA.getTimesRunner(player.getUuid()));
+                GAME.onPlayerJoin(player);
+            } catch (Exception e) {
+                ManhuntLog.error("Error in JOIN handler for " + player.getName().getString(), e);
             }
         });
 
-        // The whole game loop.
-        ServerTickEvents.END_SERVER_TICK.register(server -> GAME.onEndTick(server));
+        ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
+            try {
+                GAME.onPlayerRespawn(newPlayer);
+            } catch (Exception e) {
+                ManhuntLog.error("Error in AFTER_RESPAWN handler", e);
+            }
+        });
+
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
+            try {
+                if (entity instanceof ServerPlayerEntity player) {
+                    ManhuntLog.debug("DEATH {} via {}", player.getName().getString(),
+                            damageSource != null ? damageSource.getName() : "?");
+                    GAME.onRunnerDeath(player);
+                }
+            } catch (Exception e) {
+                ManhuntLog.error("Error in AFTER_DEATH handler", e);
+            }
+        });
+
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            try {
+                GAME.onEndTick(server);
+            } catch (Exception e) {
+                ManhuntLog.error("Unhandled exception in tick loop", e);
+            }
+        });
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             registerCommands(dispatcher);
-            LOGGER.info("[Manhunt] /manhunt commands registered (env={})", environment.name());
+            ManhuntLog.info("/manhunt command tree registered (env={})", environment.name());
         });
+
+        ManhuntLog.info("Initialization complete.");
     }
 
     private static boolean isOp(ServerCommandSource src) {
         Entity entity = src.getEntity();
         if (entity instanceof ServerPlayerEntity player) {
-            return src.getServer().getPlayerManager()
+            boolean op = src.getServer().getPlayerManager()
                     .isOperator(new PlayerConfigEntry(player.getGameProfile()));
+            if (!op) ManhuntLog.debug("Permission denied for {} (not OP)", player.getName().getString());
+            return op;
         }
         return true; // console / command blocks
+    }
+
+    @FunctionalInterface
+    private interface CmdAction {
+        void run(ServerCommandSource src) throws Exception;
+    }
+
+    /** Runs a command body with uniform logging + error reporting to console, file and player. */
+    private int run(CommandContext<ServerCommandSource> ctx, String label, CmdAction action) {
+        ServerCommandSource src = ctx.getSource();
+        String caller = src.getName();
+        ManhuntLog.info("CMD  /manhunt {}   (by {})", label, caller);
+        try {
+            action.run(src);
+            return 1;
+        } catch (Exception e) {
+            ManhuntLog.error("Command '/manhunt " + label + "' FAILED (caller=" + caller + ")", e);
+            src.sendError(Text.literal("[Manhunt] Command error: "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage()
+                    + "  (see server log / manhunt/logs.txt)"));
+            return 0;
+        }
     }
 
     private void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher) {
@@ -105,64 +178,58 @@ public class ManhuntMod implements ModInitializer {
             .requires(ManhuntMod::isOp)
 
             .then(CommandManager.literal("shuffle")
-                .executes(ctx -> { GAME.shuffle(DATA.wantedRunners); return 1; })
+                .executes(ctx -> run(ctx, "shuffle", src -> GAME.shuffle(DATA.wantedRunners)))
                 .then(CommandManager.argument("count", IntegerArgumentType.integer(1))
-                    .executes(ctx -> { GAME.shuffle(IntegerArgumentType.getInteger(ctx, "count")); return 1; })))
+                    .executes(ctx -> {
+                        int count = IntegerArgumentType.getInteger(ctx, "count");
+                        return run(ctx, "shuffle " + count, src -> GAME.shuffle(count));
+                    })))
 
             .then(CommandManager.literal("swap")
-                .executes(ctx -> { GAME.swap(); return 1; }))
+                .executes(ctx -> run(ctx, "swap", src -> GAME.swap())))
 
             .then(CommandManager.literal("start")
-                .executes(ctx -> { GAME.start(); return 1; }))
+                .executes(ctx -> run(ctx, "start", src -> GAME.start())))
 
             .then(CommandManager.literal("stop")
-                .executes(ctx -> { GAME.stop(); return 1; }))
+                .executes(ctx -> run(ctx, "stop", src -> GAME.stop())))
 
             .then(CommandManager.literal("resume")
-                .executes(ctx -> { GAME.resume(); return 1; }))
+                .executes(ctx -> run(ctx, "resume", src -> GAME.resume())))
 
             .then(CommandManager.literal("reset_history")
-                .executes(ctx -> { GAME.resetHistory(); return 1; }))
+                .executes(ctx -> run(ctx, "reset_history", src -> GAME.resetHistory())))
 
             .then(CommandManager.literal("abort")
-                .executes(ctx -> {
+                .executes(ctx -> run(ctx, "abort", src -> {
                     GAME.forceStopGame();
-                    ctx.getSource().sendFeedback(() -> Text.literal("[Manhunt] Game aborted."), true);
-                    return 1;
-                }))
+                    src.sendFeedback(() -> Text.literal("[Manhunt] Game aborted."), true);
+                })))
 
             .then(CommandManager.literal("manual")
                 .then(CommandManager.literal("runner")
                     .then(CommandManager.argument("player", EntityArgumentType.player())
                         .executes(ctx -> {
-                            GAME.setRoleManual(EntityArgumentType.getPlayer(ctx, "player"), Role.RUNNER);
-                            return 1;
+                            ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                            return run(ctx, "manual runner " + target.getName().getString(),
+                                    src -> GAME.setRoleManual(target, Role.RUNNER));
                         })))
                 .then(CommandManager.literal("hunter")
                     .then(CommandManager.argument("player", EntityArgumentType.player())
                         .executes(ctx -> {
-                            GAME.setRoleManual(EntityArgumentType.getPlayer(ctx, "player"), Role.HUNTER);
-                            return 1;
+                            ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                            return run(ctx, "manual hunter " + target.getName().getString(),
+                                    src -> GAME.setRoleManual(target, Role.HUNTER));
                         })))
                 .then(CommandManager.literal("clear")
-                    .executes(ctx -> { GAME.manualClear(); return 1; })))
+                    .executes(ctx -> run(ctx, "manual clear", src -> GAME.manualClear()))))
 
-            // OP-only world reset: starts a 10-second cancellable countdown so a
-            // misclick can't instantly wipe the world. After the countdown the
-            // secure token the external watcher detects is emitted. Team data
-            // persists across the reset (stored outside the world folders).
+            // OP-only world reset: a 10-second cancellable countdown so a misclick
+            // can't instantly wipe the world. Team data persists across the reset.
             .then(CommandManager.literal("reset")
-                .executes(ctx -> {
-                    LOGGER.info("[Manhunt] /manhunt reset (countdown) ← '{}'", ctx.getSource().getName());
-                    GAME.startResetCountdown();
-                    return 1;
-                })
+                .executes(ctx -> run(ctx, "reset", src -> GAME.startResetCountdown()))
                 .then(CommandManager.literal("cancel")
-                    .executes(ctx -> {
-                        LOGGER.info("[Manhunt] /manhunt reset cancel ← '{}'", ctx.getSource().getName());
-                        GAME.cancelResetCountdown();
-                        return 1;
-                    })))
+                    .executes(ctx -> run(ctx, "reset cancel", src -> GAME.cancelResetCountdown()))))
         );
     }
 }

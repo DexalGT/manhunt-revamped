@@ -77,6 +77,7 @@ public class GameManager {
         this.server = server;
         ensureTeams();
         reapplyAllTeams();
+        ManhuntLog.info("GameManager attached to server. State={}, online={}", state, online().size());
     }
 
     public State getState() {
@@ -115,6 +116,7 @@ public class GameManager {
         } else if (role == Role.HUNTER) {
             sb.addScoreHolderToTeam(name, sb.getTeam("hunters"));
         }
+        ManhuntLog.debug("applyTeam: {} -> {}", name, role);
     }
 
     public void reapplyAllTeams() {
@@ -148,7 +150,10 @@ public class GameManager {
         java.util.Collections.shuffle(players, rng);
 
         int wanted = Math.min(data.wantedRunners, players.size());
-        assignRoles(players.subList(0, wanted), players, true);
+        List<ServerPlayerEntity> chosen = players.subList(0, wanted);
+        ManhuntLog.info("SHUFFLE: wanted={} from {} online -> runners {}", wanted, players.size(),
+                chosen.stream().map(p -> p.getName().getString()).toList());
+        assignRoles(chosen, players, true);
         announceRoles("Roles assigned");
         data.save();
     }
@@ -168,7 +173,12 @@ public class GameManager {
                 .thenComparingInt(p -> data.getTimesRunner(p.getUuid())));
 
         int wanted = Math.min(Math.max(1, data.wantedRunners), players.size());
-        assignRoles(players.subList(0, wanted), players, true);
+        List<ServerPlayerEntity> chosen = players.subList(0, wanted);
+        ManhuntLog.info("SWAP: fairness order (name:timesRunner)=[{}] -> new runners {}",
+                players.stream().map(p -> p.getName().getString() + ":" + data.getTimesRunner(p.getUuid()))
+                        .reduce((a, b) -> a + ", " + b).orElse(""),
+                chosen.stream().map(p -> p.getName().getString()).toList());
+        assignRoles(chosen, players, true);
         announceRoles("Roles swapped");
         data.save();
     }
@@ -177,6 +187,7 @@ public class GameManager {
     public void setRoleManual(ServerPlayerEntity player, Role role) {
         UUID uuid = player.getUuid();
         String name = player.getName().getString();
+        ManhuntLog.info("MANUAL: {} {} -> {}", name, data.getRole(uuid), role);
         if (role == Role.RUNNER && data.getRole(uuid) != Role.RUNNER) {
             data.incrementTimesRunner(uuid, name);
         }
@@ -212,14 +223,17 @@ public class GameManager {
         for (ServerPlayerEntity p : all) {
             UUID uuid = p.getUuid();
             String name = p.getName().getString();
+            Role old = data.getRole(uuid);
             if (runnerSet.contains(uuid)) {
-                if (countHistory && data.getRole(uuid) != Role.RUNNER) {
+                if (countHistory && old != Role.RUNNER) {
                     data.incrementTimesRunner(uuid, name);
                 }
                 data.setRole(uuid, name, Role.RUNNER);
             } else {
                 data.setRole(uuid, name, Role.HUNTER);
             }
+            ManhuntLog.info("  role {}: {} -> {} (timesRunner={})", name, old,
+                    data.getRole(uuid), data.getTimesRunner(uuid));
             applyTeam(p);
         }
     }
@@ -251,10 +265,12 @@ public class GameManager {
             if (data.getRole(p.getUuid()) == Role.RUNNER) { hasRunner = true; break; }
         }
         if (!hasRunner) {
+            ManhuntLog.warn("START aborted: no runners assigned among {} online players.", online().size());
             broadcast(Text.literal("[Manhunt] ERROR: No runners assigned. Run /manhunt shuffle first.")
                     .formatted(Formatting.RED));
             return false;
         }
+        ManhuntLog.info("START: {} -> LEAD. {} players, lead={}s.", state, online().size(), LEAD_SECONDS);
 
         deadRunners.clear();
         lastTracked.clear();
@@ -297,6 +313,7 @@ public class GameManager {
         }
         prevState = state;
         state = State.PAUSED;
+        ManhuntLog.info("STOP: pausing (was {}). Freezing {} players.", prevState, online().size());
         for (ServerPlayerEntity p : online()) {
             p.setVelocity(0, 0, 0);
             applyFreezeEffects(p);
@@ -317,6 +334,7 @@ public class GameManager {
             broadcast(Text.literal("[Manhunt] Game is not paused.").formatted(Formatting.GRAY));
             return;
         }
+        ManhuntLog.info("RESUME: starting 5s countdown (will return to {}).", prevState);
         state = State.RESUMING;
         resumeSecondsLeft = 5;
         tickCounter = 0;
@@ -328,6 +346,7 @@ public class GameManager {
 
     private void resumeGo() {
         state = prevState == State.IDLE ? State.HUNT : prevState;
+        ManhuntLog.info("RESUME complete -> {}.", state);
         tickFreeze(false);
         for (ServerPlayerEntity p : online()) {
             clearFreezeEffects(p);
@@ -337,6 +356,7 @@ public class GameManager {
     }
 
     public void forceStopGame() {
+        ManhuntLog.info("ABORT: forcing game to IDLE (was {}).", state);
         state = State.IDLE;
         tickFreeze(false);
         for (ServerPlayerEntity p : online()) clearFreezeEffects(p);
@@ -370,6 +390,7 @@ public class GameManager {
             return;
         }
         resetCountdown = 10;
+        ManhuntLog.warn("RESET countdown STARTED ({}s). Use /manhunt reset cancel to abort.", resetCountdown);
         broadcastResetWarning(resetCountdown);
     }
 
@@ -378,6 +399,7 @@ public class GameManager {
             broadcast(Text.literal("[Manhunt] No world reset is in progress.").formatted(Formatting.GRAY));
             return;
         }
+        ManhuntLog.info("RESET countdown CANCELLED (was at {}s).", resetCountdown);
         resetCountdown = -1;
         broadcastTitle(Text.literal("RESET CANCELLED").formatted(Formatting.GREEN, Formatting.BOLD), null, 0, 40, 10);
         broadcast(Text.literal("[Manhunt] World reset cancelled.").formatted(Formatting.GREEN));
@@ -407,8 +429,10 @@ public class GameManager {
         broadcastTitle(Text.literal("RESETTING").formatted(Formatting.DARK_RED, Formatting.BOLD), null, 0, 60, 20);
         broadcast(Text.literal("[Manhunt] World reset incoming — server will restart shortly! (Teams are kept.)")
                 .formatted(Formatting.RED, Formatting.BOLD));
-        // The external watcher detects this exact log line and runs the wipe/restart.
-        ManhuntMod.LOGGER.info("[MANHUNT-RESET] TOKEN:{}", ManhuntMod.RESET_TOKEN);
+        ManhuntLog.info("World-reset countdown finished — emitting trigger token for the watcher.");
+        // The external watcher matches this EXACT log line (no other prefix) to run the
+        // wipe/restart, so emit it straight through SLF4J without the [Manhunt] prefix.
+        ManhuntLog.slf4j().info("[MANHUNT-RESET] TOKEN:{}", ManhuntMod.RESET_TOKEN);
     }
 
     private void secondTick() {
@@ -438,11 +462,14 @@ public class GameManager {
         else if (leadTimer >= 1 && leadTimer <= 5)
             broadcastTitle(Text.literal(String.valueOf(leadTimer)).formatted(Formatting.RED, Formatting.BOLD), null, 0, 22, 3);
 
+        if (leadTimer == 30 || leadTimer == 15 || (leadTimer >= 0 && leadTimer <= 5))
+            ManhuntLog.debug("LEAD countdown: {}s left", leadTimer);
         if (leadTimer <= 0) beginHunt();
     }
 
     private void beginHunt() {
         state = State.HUNT;
+        ManhuntLog.info("BEGIN HUNT: lead phase over. runners={} hunters={}", totalRunnerCount(), onlineHunterCount());
         for (ServerPlayerEntity p : online()) {
             if (data.getRole(p.getUuid()) == Role.HUNTER) {
                 p.removeStatusEffect(StatusEffects.BLINDNESS);
@@ -464,9 +491,16 @@ public class GameManager {
         // spammed a fresh one every second.
         for (ServerPlayerEntity hunter : online()) {
             if (data.getRole(hunter.getUuid()) == Role.HUNTER && !hunter.isSpectator()) {
-                updateHunterCompass(hunter);
+                try {
+                    updateHunterCompass(hunter);
+                } catch (Exception e) {
+                    ManhuntLog.error("Compass update failed for hunter " + hunter.getName().getString(), e);
+                }
             }
         }
+
+        ManhuntLog.debug("HUNT tick: aliveRunners={} totalRunners={} hunters={} endGrace={}",
+                aliveRunnerCount(), totalRunnerCount(), onlineHunterCount(), endGrace);
 
         // Win check: all runners dead.
         if (aliveRunnerCount() == 0 && totalRunnerCount() > 0) {
@@ -518,7 +552,11 @@ public class GameManager {
             endGrace = 0;
         } else if (dragonSeenAlive) {
             endGrace++;
-            if (endGrace >= 3) runnersWin();
+            ManhuntLog.info("Dragon gone from End for {}s (grace 3) — runner is in the End.", endGrace);
+            if (endGrace >= 3) {
+                ManhuntLog.info("Ender Dragon confirmed defeated.");
+                runnersWin();
+            }
         }
     }
 
@@ -531,6 +569,8 @@ public class GameManager {
         if (deadRunners.contains(player.getUuid())) return;
 
         deadRunners.add(player.getUuid());
+        ManhuntLog.info("RUNNER ELIMINATED: {} (alive runners now {}/{})", player.getName().getString(),
+                aliveRunnerCount(), totalRunnerCount());
         broadcast(Text.literal("[Manhunt] " + player.getName().getString() + " has been eliminated!")
                 .formatted(Formatting.RED));
 
@@ -540,17 +580,20 @@ public class GameManager {
     /** Called on respawn — eliminated runners come back as spectators. */
     public void onPlayerRespawn(ServerPlayerEntity player) {
         if (deadRunners.contains(player.getUuid())) {
+            ManhuntLog.info("Eliminated runner {} respawned -> SPECTATOR.", player.getName().getString());
             player.changeGameMode(GameMode.SPECTATOR);
         }
     }
 
     private void huntersWin() {
+        ManhuntLog.info("GAME OVER: HUNTERS WIN.");
         broadcastTitle(Text.literal("HUNTERS WIN!").formatted(Formatting.BLUE, Formatting.BOLD), null, 0, 80, 20);
         broadcast(Text.literal("The hunters have won!").formatted(Formatting.BLUE, Formatting.BOLD));
         gameOver();
     }
 
     private void runnersWin() {
+        ManhuntLog.info("GAME OVER: RUNNERS WIN.");
         broadcastTitle(Text.literal("RUNNERS WIN!").formatted(Formatting.RED, Formatting.BOLD), null, 0, 80, 20);
         broadcast(Text.literal("The runners have won!").formatted(Formatting.RED, Formatting.BOLD));
         gameOver();
@@ -561,6 +604,7 @@ public class GameManager {
         for (ServerPlayerEntity p : online()) removeCompass(p);
         endGrace = 0;
         dragonSeenAlive = false;
+        ManhuntLog.info("State reset to IDLE; tracking compasses removed.");
     }
 
     private int aliveRunnerCount() {
@@ -616,8 +660,9 @@ public class GameManager {
         try {
             server.getCommandManager().getDispatcher()
                     .execute("tick " + (freeze ? "freeze" : "unfreeze"), server.getCommandSource());
+            ManhuntLog.debug("Issued /tick {} (bonus mob freeze)", freeze ? "freeze" : "unfreeze");
         } catch (Exception e) {
-            ManhuntMod.LOGGER.debug("[Manhunt] tick {} skipped: {}", freeze ? "freeze" : "unfreeze", e.toString());
+            ManhuntLog.debug("tick {} skipped: {}", freeze ? "freeze" : "unfreeze", e.toString());
         }
     }
 
@@ -688,6 +733,9 @@ public class GameManager {
         UUID prev = lastTracked.get(hunter.getUuid());
         if (prev == null || !prev.equals(bestRunner.getUuid())) {
             lastTracked.put(hunter.getUuid(), bestRunner.getUuid());
+            ManhuntLog.info("COMPASS: {} now tracking {} (target dim={}, pos={})",
+                    hunter.getName().getString(), bestRunner.getName().getString(),
+                    bestTarget.dimension().getValue(), bestTarget.pos());
             hunter.sendMessage(Text.literal("Now tracking: ").formatted(Formatting.GOLD, Formatting.BOLD)
                     .append(Text.literal(bestRunner.getName().getString()).formatted(Formatting.GOLD)), false);
         }
@@ -742,7 +790,7 @@ public class GameManager {
 
     private void broadcast(Text msg) {
         for (ServerPlayerEntity p : online()) p.sendMessage(msg, false);
-        ManhuntMod.LOGGER.info("[Manhunt] {}", msg.getString());
+        ManhuntLog.info("BROADCAST: {}", msg.getString());
     }
 
     private void broadcastTitle(Text title, Text subtitle, int in, int stay, int out) {
