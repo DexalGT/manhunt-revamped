@@ -17,6 +17,10 @@ import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
+import net.fabricmc.fabric.api.event.player.UseItemCallback;
+import net.minecraft.util.ActionResult;
+import net.minecraft.util.Formatting;
+import net.minecraft.item.ItemStack;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -135,6 +139,32 @@ public class ManhuntMod implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             registerCommands(dispatcher);
             ManhuntLog.info("/manhunt command tree registered (env={})", environment.name());
+        });
+
+        UseItemCallback.EVENT.register((player, world, hand) -> {
+            if (world.isClient()) {
+                return ActionResult.PASS;
+            }
+            if (player instanceof ServerPlayerEntity serverPlayer) {
+                ItemStack stack = serverPlayer.getStackInHand(hand);
+                if (GameManager.isReviveAnchor(stack)) {
+                    if (GAME.getState() != GameManager.State.HUNT) {
+                        serverPlayer.sendMessage(Text.literal("You can only use this during an active hunt!").formatted(Formatting.RED), false);
+                        return ActionResult.CONSUME;
+                    }
+                    if (DATA.getRole(serverPlayer.getUuid()) != Role.RUNNER) {
+                        serverPlayer.sendMessage(Text.literal("Only runners can use the Revive Anchor!").formatted(Formatting.RED), false);
+                        return ActionResult.CONSUME;
+                    }
+                    boolean opened = GAME.openReviveScreen(serverPlayer, hand);
+                    if (opened) {
+                        return ActionResult.SUCCESS;
+                    } else {
+                        return ActionResult.CONSUME;
+                    }
+                }
+            }
+            return ActionResult.PASS;
         });
 
         ManhuntLog.info("Initialization complete.");

@@ -25,6 +25,16 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.GlobalPos;
 import net.minecraft.world.GameMode;
 import net.minecraft.world.World;
+import net.minecraft.component.type.ProfileComponent;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.inventory.SimpleInventory;
+import net.minecraft.screen.GenericContainerScreenHandler;
+import net.minecraft.screen.ScreenHandlerType;
+import net.minecraft.screen.SimpleNamedScreenHandlerFactory;
+import net.minecraft.screen.slot.SlotActionType;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
+import net.minecraft.particle.ParticleTypes;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -284,6 +294,13 @@ public class GameManager {
             p.getHungerManager().setFoodLevel(20);
             p.getHungerManager().setSaturationLevel(5f);
             clearFreezeEffects(p);
+        }
+
+        try {
+            server.getCommandManager().getDispatcher().execute("gamerule players_sleeping_percentage 1", server.getCommandSource());
+            ManhuntLog.info("Set players_sleeping_percentage to 1 on game start");
+        } catch (Exception e) {
+            ManhuntLog.error("Failed to execute gamerule command on game start", e);
         }
 
         leadTimer = LEAD_SECONDS;
@@ -801,5 +818,157 @@ public class GameManager {
         p.networkHandler.sendPacket(new TitleFadeS2CPacket(in, stay, out));
         if (subtitle != null) p.networkHandler.sendPacket(new SubtitleS2CPacket(subtitle));
         p.networkHandler.sendPacket(new TitleS2CPacket(title));
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    //  Revive Anchor helpers
+    // ───────────────────────────────────────────────────────────────────────────
+    public static boolean isReviveAnchor(ItemStack stack) {
+        if (stack == null || stack.isEmpty() || stack.getItem() != Items.HEART_OF_THE_SEA) return false;
+        NbtComponent cd = stack.get(DataComponentTypes.CUSTOM_DATA);
+        return cd != null && cd.copyNbt().contains("revive_anchor");
+    }
+
+    public boolean openReviveScreen(ServerPlayerEntity player, net.minecraft.util.Hand hand) {
+        if (state != State.HUNT) return false;
+
+        // Get dead online runners
+        List<ServerPlayerEntity> deadRunnersList = new ArrayList<>();
+        for (UUID uuid : deadRunners) {
+            ServerPlayerEntity p = server.getPlayerManager().getPlayer(uuid);
+            if (p != null) {
+                deadRunnersList.add(p);
+            }
+        }
+
+        if (deadRunnersList.isEmpty()) {
+            player.sendMessage(Text.literal("No dead teammates online to revive!").formatted(Formatting.RED), false);
+            return false;
+        }
+
+        // Create container inventory
+        SimpleInventory inventory = new SimpleInventory(27);
+
+        // Fill slots with heads
+        int slot = 0;
+        for (ServerPlayerEntity deadPlayer : deadRunnersList) {
+            if (slot >= 27) break;
+            
+            ItemStack head = new ItemStack(Items.PLAYER_HEAD);
+            head.set(DataComponentTypes.PROFILE, ProfileComponent.ofStatic(deadPlayer.getGameProfile()));
+            head.set(DataComponentTypes.CUSTOM_NAME, Text.literal(deadPlayer.getName().getString()).formatted(Formatting.GREEN, Formatting.BOLD));
+            
+            NbtCompound nbt = new NbtCompound();
+            nbt.putString("dead_player_uuid", deadPlayer.getUuid().toString());
+            head.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbt));
+            
+            inventory.setStack(slot++, head);
+        }
+
+        // Open inventory screen
+        player.openHandledScreen(new SimpleNamedScreenHandlerFactory(
+            (syncId, playerInventory, playerEntity) -> new GenericContainerScreenHandler(
+                ScreenHandlerType.GENERIC_9X3, syncId, playerInventory, inventory, 3) {
+                
+                @Override
+                public ItemStack quickMove(PlayerEntity p, int slotIndex) {
+                    return ItemStack.EMPTY;
+                }
+
+                @Override
+                public void onSlotClick(int slotIndex, int button, SlotActionType actionType, PlayerEntity p) {
+                    if (slotIndex >= 0 && slotIndex < 27) {
+                        ItemStack clickedStack = this.getSlot(slotIndex).getStack();
+                        if (clickedStack != null && !clickedStack.isEmpty()) {
+                            NbtComponent cd = clickedStack.get(DataComponentTypes.CUSTOM_DATA);
+                            if (cd != null && cd.copyNbt().contains("dead_player_uuid")) {
+                                String uuidStr = cd.copyNbt().getString("dead_player_uuid", "");
+                                if (!uuidStr.isEmpty()) {
+                                    UUID deadUuid = UUID.fromString(uuidStr);
+                                    if (p instanceof ServerPlayerEntity sp) {
+                                        // Check that they still have the anchor in hand
+                                        ItemStack main = sp.getMainHandStack();
+                                        ItemStack off = sp.getOffHandStack();
+                                        boolean hasAnchor = false;
+                                        net.minecraft.util.Hand useHand = null;
+
+                                        if (isReviveAnchor(main)) {
+                                            hasAnchor = true;
+                                            useHand = net.minecraft.util.Hand.MAIN_HAND;
+                                        } else if (isReviveAnchor(off)) {
+                                            hasAnchor = true;
+                                            useHand = net.minecraft.util.Hand.OFF_HAND;
+                                        }
+
+                                        if (!hasAnchor) {
+                                            sp.sendMessage(Text.literal("You must hold the Revive Anchor to revive!").formatted(Formatting.RED), false);
+                                            sp.closeHandledScreen();
+                                            return;
+                                        }
+
+                                        boolean success = revivePlayer(sp, deadUuid);
+                                        if (success) {
+                                            // Consume the anchor
+                                            sp.getStackInHand(useHand).decrement(1);
+                                            sp.closeHandledScreen();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (p instanceof ServerPlayerEntity sp) {
+                            sp.currentScreenHandler.syncState();
+                        }
+                        return;
+                    }
+                    super.onSlotClick(slotIndex, button, actionType, p);
+                }
+            },
+            Text.literal("Revive Anchor")
+        ));
+
+        return true;
+    }
+
+    public boolean revivePlayer(ServerPlayerEntity reviver, UUID deadUuid) {
+        if (state != State.HUNT) return false;
+        if (!deadRunners.contains(deadUuid)) return false;
+
+        ServerPlayerEntity deadPlayer = this.server.getPlayerManager().getPlayer(deadUuid);
+        if (deadPlayer == null) {
+            reviver.sendMessage(Text.literal("That player is no longer online!").formatted(Formatting.RED), false);
+            return false;
+        }
+
+        // Revive the player!
+        deadRunners.remove(deadUuid);
+        deadPlayer.changeGameMode(GameMode.SURVIVAL);
+        ServerWorld reviverWorld = (ServerWorld) reviver.getEntityWorld();
+        deadPlayer.teleport(reviverWorld, reviver.getX(), reviver.getY(), reviver.getZ(),
+                java.util.Collections.emptySet(), reviver.getYaw(), reviver.getPitch(), true);
+        deadPlayer.setHealth(deadPlayer.getMaxHealth());
+        deadPlayer.getHungerManager().setFoodLevel(20);
+        deadPlayer.getHungerManager().setSaturationLevel(5.0f);
+        clearFreezeEffects(deadPlayer);
+
+        // Play totem effects on the revived player
+        ServerWorld deadPlayerWorld = (ServerWorld) deadPlayer.getEntityWorld();
+        deadPlayerWorld.sendEntityStatus(deadPlayer, (byte) 35); // EntityStatuses.USE_TOTEM_OF_UNDYING is status byte 35
+        
+        // Play sounds
+        reviverWorld.playSound(null, reviver.getX(), reviver.getY(), reviver.getZ(),
+                SoundEvents.ITEM_TOTEM_USE, SoundCategory.PLAYERS, 1.0f, 1.0f);
+        
+        // Spawn particles
+        reviverWorld.spawnParticles(ParticleTypes.TOTEM_OF_UNDYING,
+                reviver.getX(), reviver.getY() + 1, reviver.getZ(), 100, 0.5, 0.5, 0.5, 0.1);
+
+        broadcast(Text.literal("[Manhunt] ").formatted(Formatting.GOLD, Formatting.BOLD)
+                .append(Text.literal(deadPlayer.getName().getString()).formatted(Formatting.RED, Formatting.BOLD))
+                .append(Text.literal(" was revived by ").formatted(Formatting.WHITE))
+                .append(Text.literal(reviver.getName().getString()).formatted(Formatting.RED, Formatting.BOLD))
+                .append(Text.literal(" using a Revive Anchor!").formatted(Formatting.WHITE)));
+
+        return true;
     }
 }
