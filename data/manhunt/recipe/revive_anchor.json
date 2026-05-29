@@ -1,0 +1,47 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "GDG",
+    "DMD",
+    "GDG"
+  ],
+  "key": {
+    "G": "minecraft:gold_block",
+    "D": "minecraft:diamond_block",
+    "M": [
+      "minecraft:ancient_debris",
+      "minecraft:netherite_scrap"
+    ]
+  },
+  "result": {
+    "id": "minecraft:heart_of_the_sea",
+    "count": 1,
+    "components": {
+      "minecraft:custom_name": {
+        "text": "Revive Anchor",
+        "bold": true,
+        "italic": false,
+        "color": "light_purple"
+      },
+      "minecraft:item_name": {
+        "text": "Revive Anchor",
+        "bold": true,
+        "italic": false,
+        "color": "light_purple"
+      },
+      "minecraft:lore": [
+        {
+          "text": "Bring your dumb friends back to life!",
+          "italic": false,
+          "color": "yellow"
+        }
+      ],
+      "minecraft:rarity": "epic",
+      "minecraft:enchantment_glint_override": true,
+      "minecraft:unbreakable": {},
+      "minecraft:custom_data": {
+        "revive_anchor": true
+      }
+    }
+  }
+}
