@@ -236,6 +236,9 @@ public class ManhuntMod implements ModInitializer {
                     src.sendFeedback(() -> Text.literal("[Manhunt] Game aborted."), true);
                 })))
 
+            .then(CommandManager.literal("confirm")
+                .executes(ctx -> run(ctx, "confirm", src -> GAME.confirmRunnerWin(src))))
+
             .then(CommandManager.literal("manual")
                 .then(CommandManager.literal("runner")
                     .then(CommandManager.argument("player", EntityArgumentType.player())

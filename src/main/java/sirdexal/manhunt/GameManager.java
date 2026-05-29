@@ -20,6 +20,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
+import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.GlobalPos;
@@ -78,6 +79,8 @@ public class GameManager {
 
     // Per-hunter last tracked runner (so we only announce target changes once).
     private final Map<UUID, UUID> lastTracked = new HashMap<>();
+
+    private boolean waitingForWinConfirmation = false;
 
     public GameManager(ManhuntData data) {
         this.data = data;
@@ -286,6 +289,7 @@ public class GameManager {
         lastTracked.clear();
         dragonSeenAlive = false;
         endGrace = 0;
+        waitingForWinConfirmation = false;
 
         for (ServerPlayerEntity p : online()) {
             p.changeGameMode(GameMode.SURVIVAL);
@@ -377,6 +381,7 @@ public class GameManager {
         state = State.IDLE;
         tickFreeze(false);
         for (ServerPlayerEntity p : online()) clearFreezeEffects(p);
+        waitingForWinConfirmation = false;
     }
 
     // ───────────────────────────────────────────────────────────────────────────
@@ -526,8 +531,17 @@ public class GameManager {
         }
         // Win check: no hunters online.
         if (onlineHunterCount() == 0) {
-            runnersWin();
+            if (!waitingForWinConfirmation) {
+                waitingForWinConfirmation = true;
+                broadcast(Text.literal("[Manhunt] ").formatted(Formatting.GOLD, Formatting.BOLD)
+                        .append(Text.literal("No hunters online! An OP must run ").formatted(Formatting.WHITE))
+                        .append(Text.literal("/manhunt confirm").formatted(Formatting.YELLOW, Formatting.BOLD))
+                        .append(Text.literal(" to confirm the Runners' victory.").formatted(Formatting.WHITE)));
+            }
             return;
+        } else if (waitingForWinConfirmation) {
+            waitingForWinConfirmation = false;
+            broadcast(Text.literal("[Manhunt] A hunter has joined. Victory confirmation cancelled.").formatted(Formatting.GREEN));
         }
         // Win check: ender dragon defeated (only while a runner is in the End).
         checkDragon();
@@ -621,6 +635,7 @@ public class GameManager {
         for (ServerPlayerEntity p : online()) removeCompass(p);
         endGrace = 0;
         dragonSeenAlive = false;
+        waitingForWinConfirmation = false;
         ManhuntLog.info("State reset to IDLE; tracking compasses removed.");
     }
 
@@ -970,5 +985,14 @@ public class GameManager {
                 .append(Text.literal(" using a Revive Anchor!").formatted(Formatting.WHITE)));
 
         return true;
+    }
+
+    public void confirmRunnerWin(ServerCommandSource src) throws Exception {
+        if (!waitingForWinConfirmation) {
+            src.sendError(Text.literal("[Manhunt] There is no pending victory confirmation."));
+            return;
+        }
+        waitingForWinConfirmation = false;
+        runnersWin();
     }
 }
