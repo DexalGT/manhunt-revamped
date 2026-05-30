@@ -205,64 +205,106 @@ public class ManhuntMod implements ModInitializer {
 
     private void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher) {
         dispatcher.register(CommandManager.literal("manhunt")
-            .requires(ManhuntMod::isOp)
-
-            .then(CommandManager.literal("shuffle")
-                .executes(ctx -> run(ctx, "shuffle", src -> GAME.shuffle(DATA.wantedRunners)))
-                .then(CommandManager.argument("count", IntegerArgumentType.integer(1))
-                    .executes(ctx -> {
-                        int count = IntegerArgumentType.getInteger(ctx, "count");
-                        return run(ctx, "shuffle " + count, src -> GAME.shuffle(count));
+            // Game Lifecycle / Control Branch
+            .then(CommandManager.literal("game")
+                .requires(ManhuntMod::isOp)
+                .then(CommandManager.literal("start")
+                    .executes(ctx -> run(ctx, "game start", src -> GAME.start())))
+                .then(CommandManager.literal("stop")
+                    .executes(ctx -> run(ctx, "game stop", src -> GAME.stop())))
+                .then(CommandManager.literal("resume")
+                    .executes(ctx -> run(ctx, "game resume", src -> GAME.resume())))
+                .then(CommandManager.literal("abort")
+                    .executes(ctx -> run(ctx, "game abort", src -> {
+                        GAME.forceStopGame();
+                        src.sendFeedback(() -> Text.literal("[Manhunt] Game aborted."), true);
                     })))
+                .then(CommandManager.literal("confirm")
+                    .executes(ctx -> run(ctx, "game confirm", src -> GAME.confirmRunnerWin(src))))
+            )
 
-            .then(CommandManager.literal("swap")
-                .executes(ctx -> run(ctx, "swap", src -> GAME.swap())))
-
-            .then(CommandManager.literal("start")
-                .executes(ctx -> run(ctx, "start", src -> GAME.start())))
-
-            .then(CommandManager.literal("stop")
-                .executes(ctx -> run(ctx, "stop", src -> GAME.stop())))
-
-            .then(CommandManager.literal("resume")
-                .executes(ctx -> run(ctx, "resume", src -> GAME.resume())))
-
-            .then(CommandManager.literal("reset_history")
-                .executes(ctx -> run(ctx, "reset_history", src -> GAME.resetHistory())))
-
-            .then(CommandManager.literal("abort")
-                .executes(ctx -> run(ctx, "abort", src -> {
-                    GAME.forceStopGame();
-                    src.sendFeedback(() -> Text.literal("[Manhunt] Game aborted."), true);
-                })))
-
-            .then(CommandManager.literal("confirm")
-                .executes(ctx -> run(ctx, "confirm", src -> GAME.confirmRunnerWin(src))))
-
-            .then(CommandManager.literal("manual")
-                .then(CommandManager.literal("runner")
-                    .then(CommandManager.argument("player", EntityArgumentType.player())
+            // Roles & Team Setup Branch
+            .then(CommandManager.literal("roles")
+                .requires(ManhuntMod::isOp)
+                .then(CommandManager.literal("shuffle")
+                    .executes(ctx -> run(ctx, "roles shuffle", src -> GAME.shuffle(DATA.wantedRunners)))
+                    .then(CommandManager.argument("count", IntegerArgumentType.integer(1))
                         .executes(ctx -> {
-                            ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
-                            return run(ctx, "manual runner " + target.getName().getString(),
-                                    src -> GAME.setRoleManual(target, Role.RUNNER));
+                            int count = IntegerArgumentType.getInteger(ctx, "count");
+                            return run(ctx, "roles shuffle " + count, src -> GAME.shuffle(count));
                         })))
-                .then(CommandManager.literal("hunter")
-                    .then(CommandManager.argument("player", EntityArgumentType.player())
-                        .executes(ctx -> {
-                            ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
-                            return run(ctx, "manual hunter " + target.getName().getString(),
-                                    src -> GAME.setRoleManual(target, Role.HUNTER));
-                        })))
-                .then(CommandManager.literal("clear")
-                    .executes(ctx -> run(ctx, "manual clear", src -> GAME.manualClear()))))
+                .then(CommandManager.literal("swap")
+                    .executes(ctx -> run(ctx, "roles swap", src -> GAME.swap())))
+                .then(CommandManager.literal("reset_history")
+                    .executes(ctx -> run(ctx, "roles reset_history", src -> GAME.resetHistory())))
+                .then(CommandManager.literal("manual")
+                    .then(CommandManager.literal("runner")
+                        .then(CommandManager.argument("player", EntityArgumentType.player())
+                            .executes(ctx -> {
+                                ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                return run(ctx, "roles manual runner " + target.getName().getString(),
+                                        src -> GAME.setRoleManual(target, Role.RUNNER));
+                            })))
+                    .then(CommandManager.literal("hunter")
+                        .then(CommandManager.argument("player", EntityArgumentType.player())
+                            .executes(ctx -> {
+                                ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                                return run(ctx, "roles manual hunter " + target.getName().getString(),
+                                        src -> GAME.setRoleManual(target, Role.HUNTER));
+                            })))
+                    .then(CommandManager.literal("clear")
+                        .executes(ctx -> run(ctx, "roles manual clear", src -> GAME.manualClear()))))
+            )
 
-            // OP-only world reset: a 10-second cancellable countdown so a misclick
-            // can't instantly wipe the world. Team data persists across the reset.
-            .then(CommandManager.literal("reset")
-                .executes(ctx -> run(ctx, "reset", src -> GAME.startResetCountdown()))
-                .then(CommandManager.literal("cancel")
-                    .executes(ctx -> run(ctx, "reset cancel", src -> GAME.cancelResetCountdown()))))
+            // World Control Branch
+            .then(CommandManager.literal("world")
+                .requires(ManhuntMod::isOp)
+                .then(CommandManager.literal("reset")
+                    .executes(ctx -> run(ctx, "world reset", src -> GAME.startResetCountdown()))
+                    .then(CommandManager.literal("cancel")
+                        .executes(ctx -> run(ctx, "world reset cancel", src -> GAME.cancelResetCountdown()))))
+            )
+
+            // Compass Branch (accessible to non-OPs, internally verified)
+            .then(CommandManager.literal("compass")
+                .executes(ctx -> {
+                    ServerCommandSource src = ctx.getSource();
+                    return run(ctx, "compass", s -> {
+                        if (s.getEntity() instanceof ServerPlayerEntity player) {
+                            GAME.giveCompassCommand(player, player);
+                        } else {
+                            s.sendError(Text.literal("This command must be run by a player."));
+                        }
+                    });
+                })
+                .then(CommandManager.argument("player", EntityArgumentType.player())
+                    .requires(ManhuntMod::isOp)
+                    .executes(ctx -> {
+                        ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                        return run(ctx, "compass " + target.getName().getString(),
+                                src -> GAME.giveCompassCommand(src.getEntity() instanceof ServerPlayerEntity p ? p : null, target));
+                    })))
+        );
+
+        // Also register the standalone "/compass" command
+        dispatcher.register(CommandManager.literal("compass")
+            .executes(ctx -> {
+                ServerCommandSource src = ctx.getSource();
+                return run(ctx, "compass", s -> {
+                    if (s.getEntity() instanceof ServerPlayerEntity player) {
+                        GAME.giveCompassCommand(player, player);
+                    } else {
+                        s.sendError(Text.literal("This command must be run by a player."));
+                    }
+                });
+            })
+            .then(CommandManager.argument("player", EntityArgumentType.player())
+                .requires(ManhuntMod::isOp)
+                .executes(ctx -> {
+                    ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+                    return run(ctx, "compass " + target.getName().getString(),
+                            src -> GAME.giveCompassCommand(src.getEntity() instanceof ServerPlayerEntity p ? p : null, target));
+                }))
         );
     }
 }

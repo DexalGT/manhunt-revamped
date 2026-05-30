@@ -408,11 +408,11 @@ public class GameManager {
     public void startResetCountdown() {
         if (resetCountdown > 0) {
             broadcast(Text.literal("[Manhunt] A reset is already counting down (" + resetCountdown
-                    + "s left). Use /manhunt reset cancel to stop it.").formatted(Formatting.YELLOW));
+                    + "s left). Use /manhunt world reset cancel to stop it.").formatted(Formatting.YELLOW));
             return;
         }
         resetCountdown = 10;
-        ManhuntLog.warn("RESET countdown STARTED ({}s). Use /manhunt reset cancel to abort.", resetCountdown);
+        ManhuntLog.warn("RESET countdown STARTED ({}s). Use /manhunt world reset cancel to abort.", resetCountdown);
         broadcastResetWarning(resetCountdown);
     }
 
@@ -440,9 +440,9 @@ public class GameManager {
     private void broadcastResetWarning(int seconds) {
         broadcastTitle(
                 Text.literal("RESET IN " + seconds).formatted(Formatting.RED, Formatting.BOLD),
-                Text.literal("/manhunt reset cancel to stop").formatted(Formatting.YELLOW),
+                Text.literal("/manhunt world reset cancel to stop").formatted(Formatting.YELLOW),
                 0, 25, 5);
-        broadcast(Text.literal("[Manhunt] World reset in " + seconds + "s — /manhunt reset cancel to stop.")
+        broadcast(Text.literal("[Manhunt] World reset in " + seconds + "s — /manhunt world reset cancel to stop.")
                 .formatted(Formatting.RED));
     }
 
@@ -713,10 +713,10 @@ public class GameManager {
     }
 
     private boolean hasCompass(ServerPlayerEntity hunter) {
-        for (ItemStack s : hunter.getInventory().getMainStacks()) {
-            if (isTracker(s)) return true;
+        for (int i = 0; i < hunter.getInventory().size(); i++) {
+            if (isTracker(hunter.getInventory().getStack(i))) return true;
         }
-        return isTracker(hunter.getOffHandStack());
+        return isTracker(hunter.currentScreenHandler.getCursorStack());
     }
 
     private boolean isTracker(ItemStack stack) {
@@ -726,10 +726,12 @@ public class GameManager {
     }
 
     private void removeCompass(ServerPlayerEntity player) {
-        for (ItemStack s : player.getInventory().getMainStacks()) {
+        for (int i = 0; i < player.getInventory().size(); i++) {
+            ItemStack s = player.getInventory().getStack(i);
             if (isTracker(s)) s.setCount(0);
         }
-        if (isTracker(player.getOffHandStack())) player.getOffHandStack().setCount(0);
+        ItemStack cursor = player.currentScreenHandler.getCursorStack();
+        if (isTracker(cursor)) cursor.setCount(0);
     }
 
     private void updateHunterCompass(ServerPlayerEntity hunter) {
@@ -743,6 +745,7 @@ public class GameManager {
         for (ServerPlayerEntity runner : online()) {
             if (data.getRole(runner.getUuid()) != Role.RUNNER) continue;
             if (deadRunners.contains(runner.getUuid())) continue;
+            if (runner.isSpectator() || !runner.isAlive()) continue;
             GlobalPos target = mapTarget(hunterDim, runner);
             if (target == null) continue;
             double dx = target.pos().getX() - hunter.getX();
@@ -774,16 +777,17 @@ public class GameManager {
 
         LodestoneTrackerComponent tracker = new LodestoneTrackerComponent(Optional.of(bestTarget), false);
         Text name = Text.literal("Tracking " + bestRunner.getName().getString()).formatted(Formatting.GOLD);
-        for (ItemStack s : hunter.getInventory().getMainStacks()) {
+        for (int i = 0; i < hunter.getInventory().size(); i++) {
+            ItemStack s = hunter.getInventory().getStack(i);
             if (isTracker(s)) {
                 s.set(DataComponentTypes.LODESTONE_TRACKER, tracker);
                 s.set(DataComponentTypes.CUSTOM_NAME, name);
             }
         }
-        ItemStack off = hunter.getOffHandStack();
-        if (isTracker(off)) {
-            off.set(DataComponentTypes.LODESTONE_TRACKER, tracker);
-            off.set(DataComponentTypes.CUSTOM_NAME, name);
+        ItemStack cursor = hunter.currentScreenHandler.getCursorStack();
+        if (isTracker(cursor)) {
+            cursor.set(DataComponentTypes.LODESTONE_TRACKER, tracker);
+            cursor.set(DataComponentTypes.CUSTOM_NAME, name);
         }
     }
 
@@ -806,10 +810,12 @@ public class GameManager {
     }
 
     private void setCompassName(ServerPlayerEntity hunter, Text name) {
-        for (ItemStack s : hunter.getInventory().getMainStacks()) {
+        for (int i = 0; i < hunter.getInventory().size(); i++) {
+            ItemStack s = hunter.getInventory().getStack(i);
             if (isTracker(s)) s.set(DataComponentTypes.CUSTOM_NAME, name);
         }
-        if (isTracker(hunter.getOffHandStack())) hunter.getOffHandStack().set(DataComponentTypes.CUSTOM_NAME, name);
+        ItemStack cursor = hunter.currentScreenHandler.getCursorStack();
+        if (isTracker(cursor)) cursor.set(DataComponentTypes.CUSTOM_NAME, name);
     }
 
     // ───────────────────────────────────────────────────────────────────────────
@@ -994,5 +1000,27 @@ public class GameManager {
         }
         waitingForWinConfirmation = false;
         runnersWin();
+    }
+
+    public void giveCompassCommand(ServerPlayerEntity sender, ServerPlayerEntity target) throws Exception {
+        if (state != State.HUNT) {
+            throw new IllegalStateException("You can only get a tracking compass during an active hunt!");
+        }
+        if (data.getRole(target.getUuid()) != Role.HUNTER) {
+            throw new IllegalArgumentException(target == sender ? "Only hunters can get a tracking compass!" : target.getName().getString() + " is not a hunter!");
+        }
+
+        giveCompass(target);
+
+        if (sender != null && sender != target) {
+            sender.sendMessage(Text.literal("[Manhunt] Gave a tracking compass to " + target.getName().getString()).formatted(Formatting.GREEN), false);
+        }
+        target.sendMessage(Text.literal("[Manhunt] You received a tracking compass.").formatted(Formatting.GREEN), false);
+
+        try {
+            updateHunterCompass(target);
+        } catch (Exception e) {
+            ManhuntLog.error("Compass update failed for hunter " + target.getName().getString() + " after command", e);
+        }
     }
 }

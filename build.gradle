@@ -47,3 +47,21 @@ jar {
 		rename { "${it}_${project.base.archivesName.get()}"}
 	}
 }
+
+tasks.register('inspectClass') {
+	doLast {
+		def urls = sourceSets.main.compileClasspath.files.collect { it.toURI().toURL() }
+		def classLoader = new URLClassLoader(urls.toArray(new URL[0]), this.class.classLoader)
+		
+		sourceSets.main.compileClasspath.files.each { file ->
+			if (file.name.endsWith(".jar")) {
+				def zip = new java.util.zip.ZipFile(file)
+				zip.entries().each { entry ->
+					if (entry.name.endsWith(".class") && entry.name.contains("Unbreakable")) {
+						println "FOUND: " + entry.name.replace("/", ".")
+					}
+				}
+			}
+		}
+	}
+}
